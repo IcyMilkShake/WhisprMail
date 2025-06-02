@@ -1,0 +1,31 @@
+# Ignore Python bytecode and virtual environments
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+venv/
+env/
+
+# Ignore Python executable and temporary files
+python_executor/
+temp/
+
+# Ignore Node.js dependencies
+node_modules/
+
+# Ignore API keys or tokens
+huggingface-api-key
+token
+
+# General IDE/editor files
+.vscode/
+*.log
+.DS_Store
+*.swp
+
+credentials.json
+token.json
+.env
