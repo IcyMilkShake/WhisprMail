@@ -1,0 +1,18 @@
+# basic-check.yml
+name: Hello Check
+
+on:
+  push:
+    branches:
+      - '**'   # Run on all branches
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Run dummy test
+        run: echo "✅ This is a test check. It passed!"
