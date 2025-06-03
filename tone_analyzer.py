@@ -4,124 +4,161 @@ import torch # To check for GPU availability
 from transformers import pipeline
 
 # --- Global Variables & Configuration ---
-SENTIMENT_MODEL_NAME = "distilbert-base-uncased-finetuned-sst-2-english"
-sentiment_classifier = None
+EMOTION_MODEL_NAME = "bhadresh-savani/distilbert-base-uncased-emotion"
+emotion_classifier = None
 device_used = "cpu" # Default to CPU
 device_index_for_pipeline = -1 # Default for CPU for pipeline
+
 
 HIGH_URGENCY_KEYWORDS = [
     'urgent', 'asap', 'emergency', 'critical', 'immediate', 'deadline today',
     'right now', 'immediately', 'crisis', 'breaking', 'alert', 'warning',
     'action required', 'time sensitive', 'expires today', 'final notice', 'crucial',
-    'top priority', 'without delay', 'act now'
+    'top priority', 'without delay', 'act now', 'right away'
 ]
 MEDIUM_URGENCY_KEYWORDS = [
     'important', 'deadline', 'follow up', 'response needed', 'meeting',
     'review required', 'approval needed', 'expires', 'reminder', 'overdue',
     'this week', 'tomorrow', 'soon', 'priority', 'attention', 'please resolve',
-    'look into this', 'needs review', 'query', 'question'
+    'look into this', 'needs review', 'query', 'question', 'pls fix', 'take a look'
 ]
+POTENTIALLY_NEGATIVE_KEYWORDS = [
+    'what the heck', 'responsibility', 'you did wrong', 'bad service', 'terrible',
+    'horrible', 'awful', 'not working', 'complaint', 'issue', 'problem',
+    'failure', 'failed', 'fix this', 'dissatisfied', 'unacceptable'
+]
+
 
 # --- Model Initialization ---
 try:
-    # Check for GPU availability
     if torch.cuda.is_available():
-        device_index_for_pipeline = 0 # Use the first available GPU for pipeline
+        device_index_for_pipeline = 0
         device_used = f"cuda:{device_index_for_pipeline}"
-        print(f"GPU (CUDA) is available. Attempting to use device: {device_used}", file=sys.stderr)
+        print(f"GPU (CUDA) is available. Using device: {device_used}", file=sys.stderr)
     else:
-        device_index_for_pipeline = -1 # This tells pipeline to use CPU
+        device_index_for_pipeline = -1
         device_used = "cpu"
         print("GPU (CUDA) not available. Using CPU.", file=sys.stderr)
 
-    sentiment_classifier = pipeline(
-        "sentiment-analysis",
-        model=SENTIMENT_MODEL_NAME,
-        device=device_index_for_pipeline # Explicitly set device
+    emotion_classifier = pipeline(
+        "text-classification",
+        model=EMOTION_MODEL_NAME,
+        device=device_index_for_pipeline,
+        top_k=None
     )
-    # Perform a dummy inference to ensure model is loaded
-    if sentiment_classifier:
-        sentiment_classifier("test initialization of sentiment model") # Test call
-        print(f"Sentiment model '{SENTIMENT_MODEL_NAME}' loaded successfully on {device_used}.", file=sys.stderr)
+    if emotion_classifier:
+        emotion_classifier("test initialization of emotion model")
+        print(f"Emotion model '{EMOTION_MODEL_NAME}' loaded successfully on {device_used}.", file=sys.stderr)
 
 except Exception as e:
-    # Detailed error logging to stderr for Node.js to potentially capture or log
-    print(f"Error loading sentiment model '{SENTIMENT_MODEL_NAME}' on device {device_used}: {str(e)}", file=sys.stderr)
-    # Prepare a JSON error message for stdout, which is the primary communication channel to Node.js
-    # This allows main.js to receive a structured error if the script is still able to print to stdout.
-    # Note: if the process crashes hard during model load, this stdout print might not happen.
-    # The exit(1) in __main__ for this case is a clearer signal of failure.
-    # For now, this print to stderr is the most reliable for model load failure diagnostics.
-    sentiment_classifier = None
+    print(f"Error loading emotion model '{EMOTION_MODEL_NAME}' on {device_used}: {str(e)}", file=sys.stderr)
+    emotion_classifier = None
 
 # --- Core Logic ---
-def analyze_text_hybrid(text_to_analyze):
+def analyze_text_final_hybrid(text_to_analyze):
     text_lower = text_to_analyze.lower()
+    reason_parts = [] # Initialize list to store reasons for decisions
 
-    found_high_keyword = any(keyword in text_lower for keyword in HIGH_URGENCY_KEYWORDS)
-    found_medium_keyword = any(keyword in text_lower for keyword in MEDIUM_URGENCY_KEYWORDS)
+    # 1. Keyword Check (Priority 1 for High Urgency)
+    if any(keyword in text_lower for keyword in HIGH_URGENCY_KEYWORDS):
+        reason_parts.append("High urgency keyword detected.")
+        return {"label": "NEGATIVE", "score": 0.95, "urgency": "high", "reason": ", ".join(reason_parts), "device_used": device_used}
 
-    model_sentiment_label = "NEUTRAL"
-    model_sentiment_score = 0.0
+    urgency_from_keywords = None
+    if any(keyword in text_lower for keyword in MEDIUM_URGENCY_KEYWORDS):
+        reason_parts.append("Medium urgency keyword detected.")
+        urgency_from_keywords = "medium"
 
-    if sentiment_classifier:
+    # 2. Emotion Model Analysis
+    primary_emotion_label = "neutral"
+    model_derived_label = "NEUTRAL" # Sentiment based on emotion
+    model_score = 0.0
+
+    if emotion_classifier:
         try:
-            results = sentiment_classifier(text_to_analyze)
-            if results and isinstance(results, list) and len(results) > 0:
-                model_sentiment_label = results[0].get('label', 'NEUTRAL').upper()
-                model_sentiment_score = results[0].get('score', 0.0)
+            # This model returns a list of dicts, not a list of lists
+            results = emotion_classifier(text_to_analyze)
+            if results and isinstance(results, list) and len(results) > 0 and isinstance(results[0], dict): # Simpler check for this model type
+                top_emotion = sorted(results, key=lambda x: x['score'], reverse=True)[0]
+                primary_emotion_label = top_emotion.get('label', 'neutral').lower()
+                model_score = top_emotion.get('score', 0.0)
+                reason_parts.append(f"Model primary emotion: {primary_emotion_label} ({model_score:.2f})")
+            elif results and isinstance(results, list) and len(results) > 0 and isinstance(results[0], list) and results[0]: # Handle [[{...}]]
+                top_emotion = sorted(results[0], key=lambda x: x['score'], reverse=True)[0]
+                primary_emotion_label = top_emotion.get('label', 'neutral').lower()
+                model_score = top_emotion.get('score', 0.0)
+                reason_parts.append(f"Model primary emotion (nested list): {primary_emotion_label} ({model_score:.2f})")
+            else:
+                reason_parts.append("Model output format unexpected.")
+                # Proceed with keyword-based or default logic if model output is strange
+
         except Exception as e:
-            print(f"Error during sentiment analysis pipeline: {str(e)}", file=sys.stderr)
-            # Keep default NEUTRAL/0.0, keyword logic may still define urgency
-    else: # sentiment_classifier is None (failed to load)
-         print("Sentiment model not available. Relying on keyword-based urgency.", file=sys.stderr)
-         # Simplified fallback if model is not loaded:
-         if found_high_keyword:
-             return {"label": "NEGATIVE", "score": 0.95, "urgency": "high", "reason": "High keyword (model unavailable)", "device_used": device_used}
-         if found_medium_keyword: # Changed to elif for clarity
-             return {"label": "NEUTRAL", "score": 0.75, "urgency": "medium", "reason": "Medium keyword (model unavailable)", "device_used": device_used}
-         return {"label": "NEUTRAL", "score": 0.5, "urgency": "low", "reason": "No keywords (model unavailable)", "device_used": device_used}
+            print(f"Error during emotion analysis pipeline: {str(e)}", file=sys.stderr)
+            reason_parts.append("Emotion model analysis failed.")
+            # Fallback to keyword logic if model processing fails
+            if urgency_from_keywords == "medium":
+                 return {"label": "NEUTRAL", "score": 0.80, "urgency": "medium", "reason": ", ".join(reason_parts), "device_used": device_used}
+            return {"label": "NEUTRAL", "score": 0.5, "urgency": "low", "reason": ", ".join(reason_parts), "device_used": device_used}
+    elif not emotion_classifier :
+        reason_parts.append("Emotion model not loaded.")
+        if urgency_from_keywords == "medium":
+            return {"label": "NEUTRAL", "score": 0.80, "urgency": "medium", "reason": ", ".join(reason_parts), "device_used": device_used}
+        return {"label": "NEUTRAL", "score": 0.5, "urgency": "low", "reason": ", ".join(reason_parts), "device_used": device_used}
 
-    final_urgency = "low"
-    final_label = model_sentiment_label
-    final_score = model_sentiment_score
-    reason_parts = []
+    # 3. Emotion-to-Urgency/Label Mapping & Refinement
+    final_urgency = urgency_from_keywords if urgency_from_keywords else "low"
+    final_label = "NEUTRAL" # Default, to be refined
+    final_score = model_score if model_score > 0 else 0.5 # Use model score or a default
 
-    if found_high_keyword:
-        final_urgency = "high"
+    # Refine label based on primary emotion
+    if primary_emotion_label == 'anger': model_derived_label = "NEGATIVE"
+    elif primary_emotion_label == 'fear': model_derived_label = "NEGATIVE"
+    elif primary_emotion_label == 'sadness': model_derived_label = "NEGATIVE"
+    elif primary_emotion_label == 'joy': model_derived_label = "POSITIVE"
+    elif primary_emotion_label == 'love': model_derived_label = "POSITIVE"
+    elif primary_emotion_label == 'surprise': model_derived_label = "NEUTRAL" # Surprise can be neutral or slightly urgent
+    else: model_derived_label = "NEUTRAL" # For 'neutral' or other unmapped emotions
+
+    final_label = model_derived_label
+
+    # Keyword correction for sentiment
+    found_potential_negative_keyword = any(keyword in text_lower for keyword in POTENTIALLY_NEGATIVE_KEYWORDS)
+    if found_potential_negative_keyword and final_label == "POSITIVE":
         final_label = "NEGATIVE"
-        final_score = max(model_sentiment_score if model_sentiment_label == "NEGATIVE" else 0.0, 0.9)
-        reason_parts.append("High keyword")
-    elif found_medium_keyword:
-        final_urgency = "medium"
-        if model_sentiment_label == "POSITIVE":
-            final_label = "POSITIVE"
-            final_score = model_sentiment_score
-        else: # Model is NEGATIVE or NEUTRAL
-            final_label = "NEUTRAL"
-            final_score = max(model_sentiment_score if model_sentiment_label == "NEGATIVE" else 0.0, 0.7)
-        reason_parts.append("Medium keyword")
-    elif model_sentiment_label == "NEGATIVE": # No keywords, but model detected negative sentiment
-        final_urgency = "medium" # Negative sentiment alone might suggest medium urgency
-        # final_label is already "NEGATIVE"
-        # final_score is model_sentiment_score
-        reason_parts.append("Model: Negative sentiment")
-    else: # Model is POSITIVE or NEUTRAL, and no high/medium keywords
-        final_urgency = "low"
-        # final_label is model_sentiment_label (POSITIVE or NEUTRAL)
-        # final_score is model_sentiment_score
-        reason_parts.append(f"Model: {model_sentiment_label} sentiment")
+        final_score = max(model_score, 0.75)
+        reason_parts.append("Corrected positive sentiment to negative due to keywords.")
 
-    if not reason_parts: # Should not happen with the logic above
-        reason_parts.append("Default evaluation")
+    # Urgency refinement based on emotion (if no high keyword was found)
+    if primary_emotion_label in ['anger', 'fear']:
+        final_urgency = "high" # These emotions imply high urgency
+    elif primary_emotion_label == 'sadness' and final_urgency == "low":
+        final_urgency = "medium"
+    elif primary_emotion_label == 'surprise' and final_urgency == "low":
+        final_urgency = "medium"
+
+    # If medium keywords set urgency, it stays medium unless emotion escalates it
+    if urgency_from_keywords == "medium" and final_urgency != "high":
+        final_urgency = "medium"
+
+    # Score adjustment based on final determination path
+    if urgency_from_keywords == "medium" and not (primary_emotion_label in ['anger', 'fear']):
+        if final_label == "NEGATIVE": final_score = max(final_score, 0.85)
+        elif final_label == "POSITIVE": final_score = max(final_score, 0.75)
+        else: final_score = 0.80 # NEUTRAL with medium keyword
+    elif primary_emotion_label in ['anger', 'fear']: # High urgency emotions
+        final_score = max(final_score, 0.90)
+    elif primary_emotion_label == 'sadness' and final_urgency == "medium":
+        final_score = max(final_score, 0.70)
+
+    if not reason_parts: reason_parts.append("Default evaluation path.")
+
 
     return {
         "label": final_label,
         "score": float(final_score),
         "urgency": final_urgency,
         "reason": ", ".join(reason_parts),
-        "model_sentiment_label": model_sentiment_label, # For debugging
-        "model_sentiment_score": float(model_sentiment_score), # For debugging
+        "primary_emotion_debug": primary_emotion_label, # For debugging
         "device_used": device_used
     }
 
@@ -133,13 +170,10 @@ if __name__ == "__main__":
     elif len(sys.argv) > 1:
         input_text = sys.argv[1]
 
-    if not sentiment_classifier:
-        # Model loading failed. Error details should have been printed to stderr during init.
-        # Send a structured error to stdout for Node.js.
+    if not emotion_classifier:
         print(json.dumps({
-            "error": f"Sentiment model '{SENTIMENT_MODEL_NAME}' could not be loaded. Analysis aborted.",
-            "label": "NEUTRAL", "score": 0.0, "urgency": "low",
-            "reason": "Sentiment model load failure",
+            "error": f"Emotion model '{EMOTION_MODEL_NAME}' could not be loaded.",
+            "label": "NEUTRAL", "score": 0.0, "urgency": "low", "reason": "Model load fail",
             "device_used": device_used
         }))
         sys.exit(1)
@@ -147,10 +181,10 @@ if __name__ == "__main__":
     if not input_text.strip():
         print(json.dumps({
             "error": "No input text provided.",
-            "label": "NEUTRAL", "score": 0.0, "urgency": "low", "reason": "No input text",
+            "label": "NEUTRAL", "score": 0.0, "urgency": "low", "reason": "No input",
             "device_used": device_used
         }))
         sys.exit(1)
 
-    analysis_result = analyze_text_hybrid(input_text)
+    analysis_result = analyze_text_final_hybrid(input_text)
     print(json.dumps(analysis_result))
