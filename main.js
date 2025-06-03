@@ -839,7 +839,8 @@ async function summarizeText(text) {
     console.error('AI summarization failed:', error);
     return text;
   }
-}async function detectEmotionalTone(text) {
+}
+async function detectEmotionalTone(text) {
   console.log("Analyzing email tone for:", text.substring(0, 100) + "...");
 
   if (!text || text.length < 10) {
@@ -864,7 +865,7 @@ Urgency guidelines:
 - LOW: General information, newsletters, updates, casual communication`;
 
   try {
-    const response = await fetch('https://api-inference.huggingface.co/models/meta-llama/Llama-3.3-70B-Instruct', {
+    const response = await fetch('https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.HUGGINGFACE_TOKEN}`,
@@ -918,6 +919,7 @@ Urgency guidelines:
     return fallbackUrgencyDetection(text);
   }
 }
+
 function fallbackUrgencyDetection(text) {
   const textLower = text.toLowerCase();
   
