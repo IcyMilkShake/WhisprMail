@@ -287,20 +287,20 @@ function createEnhancedNotificationHTML(emailData) {
         
         body {
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          background: linear-gradient(135deg, #e0e0e0, #f5f5f5); /* Simpler gradient */
           width: 100%;
           height: 100%;
           border-radius: 16px;
           overflow: hidden;
           cursor: pointer;
           animation: slideIn 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-          box-shadow: 0 20px 40px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.1);
+          box-shadow: 0 5px 15px rgba(0,0,0,0.1); /* More subtle shadow */
           position: relative;
         }
         
         .notification-container {
-          background: rgba(255, 255, 255, 0.95);
-          backdrop-filter: blur(30px);
+          background: #ffffff; /* Solid white */
+          /* backdrop-filter: blur(30px); */ /* Removed blur */
           height: 100%;
           display: flex;
           flex-direction: column;
@@ -315,21 +315,23 @@ function createEnhancedNotificationHTML(emailData) {
           left: 0;
           right: 0;
           height: 4px;
-          background: linear-gradient(90deg, #4285f4, #34a853, #fbbc05, #ea4335);
+          background: #7f8c8d; /* Neutral grey */
           z-index: 1;
         }
         
         /* Add special styling for high urgency notifications */
         .notification-container.high-urgency::before {
-          background: linear-gradient(90deg, #ef4444, #dc2626, #b91c1c);
-          height: 6px;
-          animation: urgentPulse 1.5s infinite;
+          background: #c9302c; /* Solid, strong red */
+          height: 4px; /* Standard height */
+          /* animation: urgentPulse 1.5s infinite; */ /* Removed animation */
         }
         
+        /*
         @keyframes urgentPulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.6; }
         }
+        */
         
         .main-content {
           display: flex;
@@ -342,7 +344,7 @@ function createEnhancedNotificationHTML(emailData) {
           width: 56px;
           height: 56px;
           border-radius: 50%;
-          background: linear-gradient(135deg, #4285f4, #34a853);
+          background: #bdc3c7; /* Neutral grey */
           display: flex;
           align-items: center;
           justify-content: center;
@@ -351,14 +353,14 @@ function createEnhancedNotificationHTML(emailData) {
           font-size: 22px;
           margin-right: 16px;
           flex-shrink: 0;
-          box-shadow: 0 6px 20px rgba(66, 133, 244, 0.4);
+          box-shadow: 0 2px 6px rgba(0,0,0,0.1); /* Subtle shadow */
         }
         
         /* High urgency avatar styling */
         .avatar.high-urgency {
-          background: linear-gradient(135deg, #ef4444, #dc2626);
-          box-shadow: 0 6px 20px rgba(239, 68, 68, 0.6);
-          animation: pulse 2s infinite;
+          background: #dc2626; /* Solid red */
+          box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4); /* More subtle shadow */
+          /* animation: pulse 2s infinite; */ /* Consider removing or making pulse more subtle if keyframes are changed */
         }
         
         .content {
@@ -394,63 +396,65 @@ function createEnhancedNotificationHTML(emailData) {
         
         .urgency-badge {
           font-size: 11px;
-          padding: 4px 8px;
-          border-radius: 12px;
-          font-weight: 700;
+          padding: 3px 7px; /* Slightly adjusted padding */
+          border-radius: 10px; /* Slightly smaller radius */
+          font-weight: 600; /* Slightly less bold */
           color: white;
           white-space: nowrap;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+          /* text-transform: uppercase; */ /* Optional: remove if too shouty */
+          letter-spacing: 0.2px; /* Reduced letter spacing */
+          box-shadow: 0 1px 2px rgba(0,0,0,0.15); /* More subtle shadow */
         }
 
         .urgency-badge.high {
-          background: linear-gradient(135deg, #ef4444, #dc2626);
-          animation: pulse 2s infinite;
-          box-shadow: 0 2px 12px rgba(239, 68, 68, 0.5);
+          background-color: #c9302c; /* Solid, strong red */
+          /* Removed animation and complex box-shadow */
         }
 
         .urgency-badge.medium {
-          background: linear-gradient(135deg, #f59e0b, #d97706);
-          box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4);
+          background-color: #f0ad4e; /* Solid, noticeable orange */
+          /* Removed complex box-shadow */
         }
 
+        /*
         @keyframes pulse {
           0%, 100% { 
             opacity: 1; 
             transform: scale(1);
           }
           50% { 
-            opacity: 0.8; 
-            transform: scale(1.05);
+            opacity: 0.9;
+            transform: scale(1.02);
           }
         }
+        */
         
         .summary-badge {
-          font-size: 11px;
-          padding: 3px 8px;
+          background-color: #5dade2; /* Solid blue/purple */
+          color: white;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.1); /* Subtle shadow */
+          padding: 3px 7px;
           border-radius: 10px;
           font-weight: 600;
-          background: linear-gradient(135deg, #667eea, #764ba2);
-          color: white;
-          box-shadow: 0 2px 6px rgba(102, 126, 234, 0.3);
+          font-size: 10px;
         }
         
         .read-time-badge {
           font-size: 10px;
-          padding: 2px 6px;
-          border-radius: 8px;
-          background: rgba(0,0,0,0.1);
-          color: #666;
+          padding: 2px 6px; /* Existing padding is fine */
+          border-radius: 8px; /* Existing radius is fine */
+          background: #ecf0f1; /* Light grey background */
+          color: #555; /* Darker text for contrast */
         }
 
         .ocr-badge {
-          font-size: 10px;
-          padding: 2px 6px;
-          border-radius: 8px;
-          background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+          background-color: #9b59b6; /* Solid purple */
           color: white;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.1); /* Subtle shadow */
+          padding: 3px 7px;
+          border-radius: 10px;
           font-weight: 600;
+          font-size: 10px;
         }
         
         .subject {
@@ -495,7 +499,7 @@ function createEnhancedNotificationHTML(emailData) {
         .attachments-section {
           border-top: 1px solid rgba(0,0,0,0.1);
           padding: 12px 20px;
-          background: rgba(248, 250, 252, 0.8);
+          background: #f8f9fa; /* More opaque, standard light grey */
         }
         
         .attachments-header {
@@ -522,21 +526,21 @@ function createEnhancedNotificationHTML(emailData) {
           border-radius: 8px;
           cursor: pointer;
           transition: all 0.2s ease;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+          box-shadow: 0 1px 2px rgba(0,0,0,0.05); /* Simplified shadow */
           border: 1px solid rgba(0,0,0,0.05);
         }
         
         .attachment-item:hover {
-          background: #f8fafc;
-          transform: translateY(-1px);
-          box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+          background: #e9ecef; /* Darker hover */
+          /* transform: translateY(-1px); */ /* Removed transform */
+          box-shadow: 0 1px 3px rgba(0,0,0,0.08); /* Adjusted hover shadow */
         }
         
         .attachment-icon {
           width: 32px;
           height: 32px;
           border-radius: 6px;
-          background: linear-gradient(135deg, #4285f4, #34a853);
+          background-color: #aab7c4; /* Neutral grey */
           display: flex;
           align-items: center;
           justify-content: center;
@@ -574,7 +578,7 @@ function createEnhancedNotificationHTML(emailData) {
           display: flex;
           gap: 8px;
           padding: 12px 20px;
-          background: rgba(248, 250, 252, 0.9);
+          background: #f1f3f5; /* More opaque */
           border-top: 1px solid rgba(0,0,0,0.05);
         }
 
@@ -593,12 +597,12 @@ function createEnhancedNotificationHTML(emailData) {
           transition: all 0.2s ease;
           background: white;
           color: #4a5568;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+          box-shadow: 0 1px 2px rgba(0,0,0,0.1); /* Simplified shadow */
         }
 
         .quick-btn:hover {
-          transform: translateY(-1px);
-          box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+          /* transform: translateY(-1px); */ /* Removed transform */
+          box-shadow: 0 2px 4px rgba(0,0,0,0.12); /* Adjusted hover shadow */
         }
 
         .quick-btn.mark-read:hover {
@@ -667,19 +671,16 @@ function createEnhancedNotificationHTML(emailData) {
         
         @keyframes slideIn {
           from {
-            transform: translateX(100%) scale(0.8);
+            transform: translateX(100%);
             opacity: 0;
           }
           to {
-            transform: translateX(0) scale(1);
+            transform: translateX(0);
             opacity: 1;
           }
         }
         
-        .notification-container:hover {
-          transform: scale(1.02);
-          transition: transform 0.3s ease;
-        }
+        /* Removed .notification-container:hover */
         
         @media (max-height: 400px) {
           .body-text {
