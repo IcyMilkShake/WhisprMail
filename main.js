@@ -794,130 +794,143 @@ function createEnhancedNotificationHTML(emailData) {
 
 
 async function summarizeText(text) {
-  console.log("Summarizing text...");
-  if (!text || text.length < 100) return text;
-
-  try {
-    const response = await fetch('https://api-inference.huggingface.co/models/facebook/bart-large-cnn', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${settings.huggingFaceToken}`
-      },
-      body: JSON.stringify({
-        inputs: text.slice(0, 1024),
-        parameters: { 
-          max_length: 142,          // Longer for complete thoughts
-          min_length: 30,           // Ensure substantial content
-          do_sample: false,
-          early_stopping: true,
-          no_repeat_ngram_size: 3,
-          length_penalty: 2.0,      // Encourage fuller sentences
-          num_beams: 4             // Better quality with beam search
-        }
-      })
-    });
-
-    if (!response.ok) {
-      console.error('Summarization API error:', response.status, response.statusText);
-      return text;
-    }
-
-    const result = await response.json();
-    console.log("Text summary result:", result);
-
-    if (Array.isArray(result) && result.length > 0) {
-      return result[0]?.summary_text || result[0]?.generated_text || text;
-    } else if (result.summary_text) {
-      return result.summary_text;
-    } else if (result.generated_text) {
-      return result.generated_text;
-    }
-
-    return text;
-  } catch (error) {
-    console.error('AI summarization failed:', error);
+  console.log("Summarizing text via Python script...");
+  if (!text || text.length < 100) {
+    console.log("Text too short or empty, returning original.");
     return text;
   }
+
+  // Ensure settings.huggingfaceToken is available for the Python script's environment
+  // The Python script for summarizer.py (BART) itself doesn't directly use the token
+  // but it's good practice if other Python scripts might.
+  // For summarizer.py, it relies on transformers library which might have its own auth.
+
+  const pythonPath = path.join(__dirname, 'python_executor', 'python.exe');
+  const scriptPath = path.join(__dirname, 'summarizer.py');
+
+  return new Promise((resolve, reject) => {
+    const pythonProcess = spawn(pythonPath, [scriptPath]);
+
+    let stdoutData = '';
+    let stderrData = '';
+
+    pythonProcess.stdout.on('data', (data) => {
+      stdoutData += data.toString();
+    });
+
+    pythonProcess.stderr.on('data', (data) => {
+      stderrData += data.toString();
+    });
+
+    pythonProcess.on('close', (code) => {
+      if (stderrData) {
+        console.error(`summarizer.py stderr: ${stderrData}`);
+      }
+      if (code === 0) {
+        try {
+          const result = JSON.parse(stdoutData);
+          if (result.summary_text) {
+            console.log("Summarization successful via Python script.");
+            resolve(result.summary_text);
+          } else if (result.error) {
+            console.error(`Error from summarizer.py: ${result.error}`);
+            resolve(text); // Return original text on script error
+          } else {
+            console.error('Invalid JSON response from summarizer.py');
+            resolve(text); // Return original text
+          }
+        } catch (e) {
+          console.error(`Failed to parse JSON from summarizer.py: ${e}`);
+          console.error(`Raw stdout from summarizer.py: ${stdoutData}`);
+          resolve(text); // Return original text
+        }
+      } else {
+        console.error(`summarizer.py exited with code ${code}`);
+        resolve(text); // Return original text on non-zero exit code
+      }
+    });
+
+    pythonProcess.on('error', (error) => {
+      console.error(`Failed to start summarizer.py: ${error}`);
+      resolve(text); // Return original text if process fails to start
+    });
+
+    // Write the text to the Python script's stdin
+    pythonProcess.stdin.write(text);
+    pythonProcess.stdin.end();
+  });
 }
+
 async function detectEmotionalTone(text) {
-  console.log("Analyzing email tone for:", text.substring(0, 100) + "...");
+  console.log("Analyzing email tone via Python script for:", text.substring(0, 100) + "...");
 
   if (!text || text.length < 10) {
+    console.log("Text too short or empty, returning default low urgency.");
     return { label: 'NEUTRAL', score: 0.5, urgency: 'low' };
   }
 
-  // Enhanced prompt with better urgency detection
-  const prompt = `Analyze this email content for emotional tone and urgency level:
+  const pythonPath = path.join(__dirname, 'python_executor', 'python.exe');
+  const scriptPath = path.join(__dirname, 'tone_analyzer.py');
 
-Email: "${text}"
+  // Pass HUGGINGFACE_TOKEN via environment variables for the spawned process
+  const env = { ...process.env, HUGGINGFACE_TOKEN: settings.huggingfaceToken };
 
-Respond with JSON format:
-{
-  "label": "POSITIVE" | "NEGATIVE" | "NEUTRAL",
-  "score": float between 0 and 1,
-  "urgency": "low" | "medium" | "high"
-}
+  return new Promise((resolve) => {
+    const pythonProcess = spawn(pythonPath, [scriptPath], { env });
 
-Urgency guidelines:
-- HIGH: Contains urgent keywords (ASAP, urgent, emergency, deadline today, critical, immediate action required), complaints, threats, or time-sensitive requests
-- MEDIUM: Important but not immediate (deadline this week, follow-up needed, requires response, meeting requests)  
-- LOW: General information, newsletters, updates, casual communication`;
+    let stdoutData = '';
+    let stderrData = '';
 
-  try {
-    const response = await fetch('https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.HUGGINGFACE_TOKEN}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        inputs: prompt,
-        parameters: {
-          max_new_tokens: 150,
-          temperature: 0.3,
-          return_full_text: false
-        }
-      })
+    pythonProcess.stdout.on('data', (data) => {
+      stdoutData += data.toString();
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`HTTP ${response.status} - ${response.statusText}\n${errorText}`);
-    }
+    pythonProcess.stderr.on('data', (data) => {
+      stderrData += data.toString();
+    });
 
-    const result = await response.json();
-    const raw = result[0]?.generated_text || '';
-    
-    console.log("AI Response:", raw);
-    
-    // Try to extract JSON from the response
-    const jsonMatch = raw.match(/\{[\s\S]*?\}/);
-    
-    if (jsonMatch) {
-      try {
-        const parsed = JSON.parse(jsonMatch[0]);
-        const finalResult = {
-          label: parsed.label || 'NEUTRAL',
-          score: typeof parsed.score === 'number' ? parsed.score : 0.5,
-          urgency: parsed.urgency || 'low'
-        };
-        
-        console.log("Parsed tone result:", finalResult);
-        return finalResult;
-      } catch (parseError) {
-        console.error("JSON parse error:", parseError);
+    pythonProcess.on('close', (code) => {
+      if (stderrData) {
+        console.error(`tone_analyzer.py stderr: ${stderrData}`);
       }
-    }
+      if (code === 0) {
+        try {
+          const result = JSON.parse(stdoutData);
+          // Check if the result is an error from the script
+          if (result.error) {
+             console.error(`Error from tone_analyzer.py: ${result.error}`);
+             resolve(fallbackUrgencyDetection(text)); // Fallback
+          } else if (result.label && result.urgency) { // Check for expected fields
+            console.log("Tone analysis successful via Python script:", result);
+            resolve({
+                label: result.label,
+                score: parseFloat(result.score) || 0.5,
+                urgency: result.urgency,
+                fallback: result.fallback || false // Check if fallback was used in Python
+            });
+          } else {
+            console.error('Invalid JSON response structure from tone_analyzer.py:', stdoutData);
+            resolve(fallbackUrgencyDetection(text)); // Fallback
+          }
+        } catch (e) {
+          console.error(`Failed to parse JSON from tone_analyzer.py: ${e}`);
+          console.error(`Raw stdout from tone_analyzer.py: ${stdoutData}`);
+          resolve(fallbackUrgencyDetection(text)); // Fallback
+        }
+      } else {
+        console.error(`tone_analyzer.py exited with code ${code}`);
+        resolve(fallbackUrgencyDetection(text)); // Fallback
+      }
+    });
 
-    // Fallback: Simple keyword-based urgency detection
-    console.log("Falling back to keyword-based urgency detection");
-    return fallbackUrgencyDetection(text);
+    pythonProcess.on('error', (error) => {
+      console.error(`Failed to start tone_analyzer.py: ${error}`);
+      resolve(fallbackUrgencyDetection(text)); // Fallback
+    });
 
-  } catch (error) {
-    console.error('Error during Hugging Face request:', error);
-    return fallbackUrgencyDetection(text);
-  }
+    pythonProcess.stdin.write(text);
+    pythonProcess.stdin.end();
+  });
 }
 
 function fallbackUrgencyDetection(text) {
@@ -939,16 +952,16 @@ function fallbackUrgencyDetection(text) {
   
   // Check for high urgency
   if (highUrgencyKeywords.some(keyword => textLower.includes(keyword))) {
-    return { label: 'NEGATIVE', score: 0.8, urgency: 'high' };
+    return { label: 'NEGATIVE', score: 0.8, urgency: 'high', fallback: true };
   }
   
   // Check for medium urgency
   if (mediumUrgencyKeywords.some(keyword => textLower.includes(keyword))) {
-    return { label: 'NEUTRAL', score: 0.6, urgency: 'medium' };
+    return { label: 'NEUTRAL', score: 0.6, urgency: 'medium', fallback: true };
   }
   
   // Default to low urgency
-  return { label: 'NEUTRAL', score: 0.5, urgency: 'low' };
+  return { label: 'NEUTRAL', score: 0.5, urgency: 'low', fallback: true };
 }
 
 
