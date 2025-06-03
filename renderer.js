@@ -1,7 +1,8 @@
 let isMonitoring = false;
 let settings = {
   enableSummary: false,
-  enableVoiceReading: true
+  enableVoiceReading: true,
+  showUrgency: true // Add this line, defaulting to true
 };
 
 // UI Elements
@@ -35,6 +36,7 @@ function updateUI() {
 function updateSettingsUI() {
   document.getElementById('summaryToggle').checked = settings.enableSummary;
   document.getElementById('voiceToggle').checked = settings.enableVoiceReading;
+  document.getElementById('urgencyToggle').checked = settings.showUrgency; // Add this line
 }
 
 function setLoading(element, loading) {
@@ -66,9 +68,11 @@ async function saveSettings() {
   try {
     const summaryToggle = document.getElementById('summaryToggle');
     const voiceToggle = document.getElementById('voiceToggle');
+    const urgencyToggle = document.getElementById('urgencyToggle'); // Add this
     
     settings.enableSummary = summaryToggle.checked;
     settings.enableVoiceReading = voiceToggle.checked;
+    settings.showUrgency = urgencyToggle.checked; // Add this
     
     await window.gmail.updateSettings(settings);
     showSuccessFlash(document.querySelector('.settings-panel'));
@@ -225,6 +229,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   document.getElementById('summaryToggle').addEventListener('change', debouncedSave);
   document.getElementById('voiceToggle').addEventListener('change', debouncedSave);
+  document.getElementById('urgencyToggle').addEventListener('change', debouncedSave);
   
   // Keyboard shortcuts
   document.addEventListener('keydown', (e) => {
