@@ -867,7 +867,7 @@ Urgency guidelines:
     const response = await fetch('https://api-inference.huggingface.co/models/meta-llama/Llama-3.3-70B-Instruct', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${huggingFaceToken}`,
+        'Authorization': `Bearer ${process.env.HUGGINGFACE_TOKEN}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
