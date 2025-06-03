@@ -1,3 +1,4 @@
+require('dotenv').config();
 const { app, BrowserWindow, ipcMain, Notification, shell, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -7,7 +8,6 @@ const http = require('http');
 const say = require('say');
 const { spawn } = require('child_process');
 const puppeteer = require('puppeteer');
-require('dotenv').config();
 
 
 let mainWindow;
