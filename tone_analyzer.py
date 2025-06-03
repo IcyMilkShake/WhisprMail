@@ -1,151 +1,131 @@
 import sys
 import json
-# import re # Not strictly needed by the provided fallback_urgency_detection_py
+import torch # To check for GPU availability
 from transformers import pipeline
 
-# Initialize the classifier globally.
+# --- Global Variables & Configuration ---
+SENTIMENT_MODEL_NAME = "distilbert-base-uncased-finetuned-sst-2-english"
+sentiment_classifier = None
+device_used = "cpu" # Default to CPU
+device_index_for_pipeline = -1 # Default for CPU for pipeline
+
+HIGH_URGENCY_KEYWORDS = [
+    'urgent', 'asap', 'emergency', 'critical', 'immediate', 'deadline today',
+    'right now', 'immediately', 'crisis', 'breaking', 'alert', 'warning',
+    'action required', 'time sensitive', 'expires today', 'final notice', 'crucial',
+    'top priority', 'without delay', 'act now'
+]
+MEDIUM_URGENCY_KEYWORDS = [
+    'important', 'deadline', 'follow up', 'response needed', 'meeting',
+    'review required', 'approval needed', 'expires', 'reminder', 'overdue',
+    'this week', 'tomorrow', 'soon', 'priority', 'attention', 'please resolve',
+    'look into this', 'needs review', 'query', 'question'
+]
+
+# --- Model Initialization ---
 try:
-    emotion_classifier = pipeline(
-        "text-classification",
-        model="SamLowe/roberta-base-go_emotions",
-        top_k=None  # Get scores for all emotions
+    # Check for GPU availability
+    if torch.cuda.is_available():
+        device_index_for_pipeline = 0 # Use the first available GPU for pipeline
+        device_used = f"cuda:{device_index_for_pipeline}"
+        print(f"GPU (CUDA) is available. Attempting to use device: {device_used}", file=sys.stderr)
+    else:
+        device_index_for_pipeline = -1 # This tells pipeline to use CPU
+        device_used = "cpu"
+        print("GPU (CUDA) not available. Using CPU.", file=sys.stderr)
+
+    sentiment_classifier = pipeline(
+        "sentiment-analysis",
+        model=SENTIMENT_MODEL_NAME,
+        device=device_index_for_pipeline # Explicitly set device
     )
-    # Test with a dummy input to ensure the pipeline is truly ready
-    if emotion_classifier:
-        emotion_classifier("test initial call")
+    # Perform a dummy inference to ensure model is loaded
+    if sentiment_classifier:
+        sentiment_classifier("test initialization of sentiment model") # Test call
+        print(f"Sentiment model '{SENTIMENT_MODEL_NAME}' loaded successfully on {device_used}.", file=sys.stderr)
+
 except Exception as e:
-    # This error will be printed to stderr. Node.js can capture it.
-    print(json.dumps({"error": f"Failed to load emotion model or test inference: {str(e)}"}), file=sys.stderr)
-    emotion_classifier = None
+    # Detailed error logging to stderr for Node.js to potentially capture or log
+    print(f"Error loading sentiment model '{SENTIMENT_MODEL_NAME}' on device {device_used}: {str(e)}", file=sys.stderr)
+    # Prepare a JSON error message for stdout, which is the primary communication channel to Node.js
+    # This allows main.js to receive a structured error if the script is still able to print to stdout.
+    # Note: if the process crashes hard during model load, this stdout print might not happen.
+    # The exit(1) in __main__ for this case is a clearer signal of failure.
+    # For now, this print to stderr is the most reliable for model load failure diagnostics.
+    sentiment_classifier = None
 
-def map_emotions_to_urgency_sentiment(emotions_list):
-    if not emotions_list or not isinstance(emotions_list, list):
-        return {"label": "NEUTRAL", "score": 0.0, "urgency": "low", "reason": "No emotions provided to map"}
+# --- Core Logic ---
+def analyze_text_hybrid(text_to_analyze):
+    text_lower = text_to_analyze.lower()
 
-    emotion_map = {
-        'anger':        (3, 'NEGATIVE', 0.8), 'annoyance':    (3, 'NEGATIVE', 0.7),
-        'disapproval':  (3, 'NEGATIVE', 0.7), 'fear':         (3, 'NEGATIVE', 0.9),
-        'sadness':      (2, 'NEGATIVE', 0.6), 'grief':        (2, 'NEGATIVE', 0.7),
-        'disappointment':(2, 'NEGATIVE', 0.5),'embarrassment':(1, 'NEGATIVE', 0.4),
-        'nervousness':  (2, 'NEUTRAL', 0.5),  'excitement':   (2, 'POSITIVE', 0.8),
-        'curiosity':    (1, 'NEUTRAL', 0.6),  'caring':       (1, 'POSITIVE', 0.7),
-        'love':         (1, 'POSITIVE', 0.7),  'joy':          (1, 'POSITIVE', 0.9),
-        'optimism':     (1, 'POSITIVE', 0.6),  'relief':       (1, 'POSITIVE', 0.5),
-        'approval':     (1, 'POSITIVE', 0.5),  'amusement':    (1, 'POSITIVE', 0.4),
-        'desire':       (2, 'NEUTRAL', 0.6),  'realization':  (1, 'NEUTRAL', 0.5),
-        'surprise':     (2, 'NEUTRAL', 0.7),  'confusion':    (2, 'NEUTRAL', 0.4),
-        'neutral':      (1, 'NEUTRAL', 0.9)
-    }
+    found_high_keyword = any(keyword in text_lower for keyword in HIGH_URGENCY_KEYWORDS)
+    found_medium_keyword = any(keyword in text_lower for keyword in MEDIUM_URGENCY_KEYWORDS)
 
-    sorted_emotions = sorted(emotions_list, key=lambda x: x.get('score', 0), reverse=True)
+    model_sentiment_label = "NEUTRAL"
+    model_sentiment_score = 0.0
 
-    if not sorted_emotions:
-         return {"label": "NEUTRAL", "score": 0.0, "urgency": "low", "reason": "Empty or invalid emotion list"}
+    if sentiment_classifier:
+        try:
+            results = sentiment_classifier(text_to_analyze)
+            if results and isinstance(results, list) and len(results) > 0:
+                model_sentiment_label = results[0].get('label', 'NEUTRAL').upper()
+                model_sentiment_score = results[0].get('score', 0.0)
+        except Exception as e:
+            print(f"Error during sentiment analysis pipeline: {str(e)}", file=sys.stderr)
+            # Keep default NEUTRAL/0.0, keyword logic may still define urgency
+    else: # sentiment_classifier is None (failed to load)
+         print("Sentiment model not available. Relying on keyword-based urgency.", file=sys.stderr)
+         # Simplified fallback if model is not loaded:
+         if found_high_keyword:
+             return {"label": "NEGATIVE", "score": 0.95, "urgency": "high", "reason": "High keyword (model unavailable)", "device_used": device_used}
+         if found_medium_keyword: # Changed to elif for clarity
+             return {"label": "NEUTRAL", "score": 0.75, "urgency": "medium", "reason": "Medium keyword (model unavailable)", "device_used": device_used}
+         return {"label": "NEUTRAL", "score": 0.5, "urgency": "low", "reason": "No keywords (model unavailable)", "device_used": device_used}
 
-    top_mapped_emotion_label = "neutral"
-    top_mapped_emotion_score = 0.0
-    top_mapped_emotion_sentiment = "NEUTRAL"
-    found_primary_mapping = False
+    final_urgency = "low"
+    final_label = model_sentiment_label
+    final_score = model_sentiment_score
+    reason_parts = []
 
-    for emotion_item in sorted_emotions:
-        emotion_name = emotion_item.get('label','').lower()
-        score = emotion_item.get('score',0)
-        if emotion_name in emotion_map:
-            if not found_primary_mapping: # This is the highest-scored emotion that has a mapping
-                top_mapped_emotion_label = emotion_name
-                top_mapped_emotion_score = score
-                top_mapped_emotion_sentiment = emotion_map[emotion_name][1]
-                found_primary_mapping = True
-            # Break here if we only want the top-most mapped emotion to determine sentiment and score
-            # If we want the absolute highest score from any mapped emotion, we'd continue and update if score > top_mapped_emotion_score
-            break
+    if found_high_keyword:
+        final_urgency = "high"
+        final_label = "NEGATIVE"
+        final_score = max(model_sentiment_score if model_sentiment_label == "NEGATIVE" else 0.0, 0.9)
+        reason_parts.append("High keyword")
+    elif found_medium_keyword:
+        final_urgency = "medium"
+        if model_sentiment_label == "POSITIVE":
+            final_label = "POSITIVE"
+            final_score = model_sentiment_score
+        else: # Model is NEGATIVE or NEUTRAL
+            final_label = "NEUTRAL"
+            final_score = max(model_sentiment_score if model_sentiment_label == "NEGATIVE" else 0.0, 0.7)
+        reason_parts.append("Medium keyword")
+    elif model_sentiment_label == "NEGATIVE": # No keywords, but model detected negative sentiment
+        final_urgency = "medium" # Negative sentiment alone might suggest medium urgency
+        # final_label is already "NEGATIVE"
+        # final_score is model_sentiment_score
+        reason_parts.append("Model: Negative sentiment")
+    else: # Model is POSITIVE or NEUTRAL, and no high/medium keywords
+        final_urgency = "low"
+        # final_label is model_sentiment_label (POSITIVE or NEUTRAL)
+        # final_score is model_sentiment_score
+        reason_parts.append(f"Model: {model_sentiment_label} sentiment")
 
-    if not found_primary_mapping: # No emotion in sorted_emotions was found in emotion_map
-        # This can happen if the model returns emotions not in our map (e.g. 'pride', 'remorse')
-        # Or if sorted_emotions was empty / malformed from the start
-        # Default to neutral or use the absolute top emotion if available, even if unmapped for urgency
-        if sorted_emotions: # If there were emotions, but none mapped for primary sentiment
-            primary_emotion_label = sorted_emotions[0].get('label', 'unknown').lower()
-            top_mapped_emotion_score = sorted_emotions[0].get('score', 0.0)
-            # Default sentiment for unmapped emotions; could be NEUTRAL or based on other rules
-            top_mapped_emotion_sentiment = "NEUTRAL"
-        else: # Should have been caught by earlier checks
-            primary_emotion_label = "unknown"
-            top_mapped_emotion_score = 0.0
-            top_mapped_emotion_sentiment = "NEUTRAL"
-
-
-    highest_urgency_level = 0
-    for emotion_item in sorted_emotions:
-        emotion_name = emotion_item.get('label','').lower()
-        score = emotion_item.get('score',0)
-
-        if score < 0.1: # Threshold for an emotion to contribute to urgency
-            continue
-
-        if emotion_name in emotion_map:
-            urg_num, _, _ = emotion_map[emotion_name]
-            if urg_num > highest_urgency_level:
-                highest_urgency_level = urg_num
-
-    # If no emotion met the threshold or mapped to an urgency > 0, highest_urgency_level remains 0
-    # Ensure there's a default if top_mapped_emotion_label was also not found in emotion_map for its own urgency
-    if highest_urgency_level == 0 and top_mapped_emotion_label in emotion_map:
-        highest_urgency_level = emotion_map[top_mapped_emotion_label][0]
-    elif highest_urgency_level == 0: # Still 0, default to low
-        highest_urgency_level = 1
-
-
-    urgency_str_map = {3: "high", 2: "medium", 1: "low", 0: "low"}
-    final_urgency_str = urgency_str_map.get(highest_urgency_level, "low")
+    if not reason_parts: # Should not happen with the logic above
+        reason_parts.append("Default evaluation")
 
     return {
-        "label": top_mapped_emotion_sentiment,
-        "score": float(top_mapped_emotion_score), # Ensure score is float
-        "urgency": final_urgency_str,
-        "primary_emotion_model": top_mapped_emotion_label,
-        "primary_emotion_raw": sorted_emotions[0].get('label', 'N/A').lower() if sorted_emotions else "N/A",
-        "raw_scores": emotions_list # Return all original scores for potential logging/debugging in JS
+        "label": final_label,
+        "score": float(final_score),
+        "urgency": final_urgency,
+        "reason": ", ".join(reason_parts),
+        "model_sentiment_label": model_sentiment_label, # For debugging
+        "model_sentiment_score": float(model_sentiment_score), # For debugging
+        "device_used": device_used
     }
 
-def analyze_tone_locally(text_to_analyze):
-    if not emotion_classifier:
-        # This state means the model itself failed to load.
-        # The __main__ block should prevent this function from being called.
-        # However, as a safeguard:
-        return {"error": "Emotion classifier model not loaded."}
-    try:
-        raw_emotions_output = emotion_classifier(text_to_analyze)
-
-        if (raw_emotions_output and isinstance(raw_emotions_output, list) and
-            len(raw_emotions_output) > 0 and isinstance(raw_emotions_output[0], list)):
-            # Pass the list of emotion dicts (e.g., raw_emotions_output[0])
-            return map_emotions_to_urgency_sentiment(raw_emotions_output[0])
-        else:
-            print(f"Unexpected output format from emotion model: {raw_emotions_output}. Using keyword fallback.", file=sys.stderr)
-            return fallback_urgency_detection_py(text_to_analyze)
-    except Exception as e:
-        print(f"Error during emotion analysis pipeline: {str(e)}. Using keyword fallback.", file=sys.stderr)
-        return fallback_urgency_detection_py(text_to_analyze)
-
-def fallback_urgency_detection_py(text):
-    text_lower = text.lower()
-    high_urgency_keywords = [
-        'urgent', 'asap', 'emergency', 'critical', 'immediate', 'deadline today',
-        'right now', 'immediately', 'crisis', 'breaking', 'alert', 'warning',
-        'action required', 'time sensitive', 'expires today', 'final notice'
-    ]
-    medium_urgency_keywords = [
-        'important', 'deadline', 'follow up', 'response needed', 'meeting',
-        'review required', 'approval needed', 'expires', 'reminder', 'overdue',
-        'this week', 'tomorrow', 'soon', 'priority', 'attention'
-    ]
-    if any(keyword in text_lower for keyword in high_urgency_keywords):
-        return {"label": "NEGATIVE", "score": 0.8, "urgency": "high", "reason": "Keyword fallback triggered in Python"}
-    if any(keyword in text_lower for keyword in medium_urgency_keywords):
-        return {"label": "NEUTRAL", "score": 0.6, "urgency": "medium", "reason": "Keyword fallback triggered in Python"}
-    return {"label": "NEUTRAL", "score": 0.5, "urgency": "low", "reason": "Keyword fallback triggered in Python"}
-
+# --- Main Execution ---
 if __name__ == "__main__":
     input_text = ""
     if not sys.stdin.isatty():
@@ -153,17 +133,24 @@ if __name__ == "__main__":
     elif len(sys.argv) > 1:
         input_text = sys.argv[1]
 
-    if not emotion_classifier:
-        # This means the classifier failed to load at the start.
-        # Error message already printed to stderr during initialization.
-        print(json.dumps({"error": "Emotion classifier model is not available. Analysis halted."}))
+    if not sentiment_classifier:
+        # Model loading failed. Error details should have been printed to stderr during init.
+        # Send a structured error to stdout for Node.js.
+        print(json.dumps({
+            "error": f"Sentiment model '{SENTIMENT_MODEL_NAME}' could not be loaded. Analysis aborted.",
+            "label": "NEUTRAL", "score": 0.0, "urgency": "low",
+            "reason": "Sentiment model load failure",
+            "device_used": device_used
+        }))
         sys.exit(1)
 
     if not input_text.strip():
-        error_output = {"error": "No input text provided to tone_analyzer.py or input was empty."}
-        # No fallback here, as it's an input issue, not an analysis issue.
-        print(json.dumps(error_output))
+        print(json.dumps({
+            "error": "No input text provided.",
+            "label": "NEUTRAL", "score": 0.0, "urgency": "low", "reason": "No input text",
+            "device_used": device_used
+        }))
         sys.exit(1)
 
-    final_result = analyze_tone_locally(input_text)
-    print(json.dumps(final_result))
+    analysis_result = analyze_text_hybrid(input_text)
+    print(json.dumps(analysis_result))
