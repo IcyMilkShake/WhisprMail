@@ -22,7 +22,8 @@ let activeNotifications = new Set(); // Track active notification windows
 let settings = {
   enableSummary: false,
   enableVoiceReading: true,
-  huggingfaceToken: process.env.HUGGINGFACE_TOKEN
+  huggingfaceToken: process.env.HUGGINGFACE_TOKEN,
+  showUrgency: true
 };
 
 function createWindow() {
@@ -224,16 +225,18 @@ function createEnhancedNotificationHTML(emailData) {
 
   // Enhanced urgency badge with debugging
   let urgencyBadge = '';
-  console.log(`Urgency check: ${emailData.urgency} (type: ${typeof emailData.urgency})`);
-  
-  if (emailData.urgency === 'high') {
-    urgencyBadge = '<div class="urgency-badge high">🚨 Urgent</div>';
-    console.log("Adding HIGH urgency badge");
-  } else if (emailData.urgency === 'medium') {
-    urgencyBadge = '<div class="urgency-badge medium">⚠️ Important</div>';
-    console.log("Adding MEDIUM urgency badge");
-  } else {
-    console.log("No urgency badge (low urgency)");
+  if (settings.showUrgency) {
+    console.log(`Urgency check: ${emailData.urgency} (type: ${typeof emailData.urgency})`);
+
+    if (emailData.urgency === 'high') {
+      urgencyBadge = '<div class="urgency-badge high">🚨 Urgent</div>';
+      console.log("Adding HIGH urgency badge");
+    } else if (emailData.urgency === 'medium') {
+      urgencyBadge = '<div class="urgency-badge medium">⚠️ Important</div>';
+      console.log("Adding MEDIUM urgency badge");
+    } else {
+      console.log("No urgency badge (low urgency)");
+    }
   }
 
   const readTimeBadge = emailData.readTime ? 
