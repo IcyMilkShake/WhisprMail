@@ -1,4 +1,3 @@
-require('dotenv').config();
 const { app, BrowserWindow, ipcMain, Notification, shell, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -8,6 +7,7 @@ const http = require('http');
 const say = require('say');
 const { spawn } = require('child_process');
 const puppeteer = require('puppeteer');
+require('dotenv').config();
 
 
 let mainWindow;
@@ -873,10 +873,11 @@ async function detectEmotionalTone(text) {
   const scriptPath = path.join(__dirname, 'tone_analyzer.py');
 
   // Pass HUGGINGFACE_TOKEN via environment variables for the spawned process
-  const env = { ...process.env, HUGGINGFACE_TOKEN: settings.huggingfaceToken };
+  // const env = { ...process.env, HUGGINGFACE_TOKEN: settings.huggingfaceToken }; // No longer needed for local model
 
   return new Promise((resolve) => {
-    const pythonProcess = spawn(pythonPath, [scriptPath], { env });
+    // const pythonProcess = spawn(pythonPath, [scriptPath], { env }); // Old call with env
+    const pythonProcess = spawn(pythonPath, [scriptPath]); // New call, inherits process.env
 
     let stdoutData = '';
     let stderrData = '';
@@ -932,7 +933,6 @@ async function detectEmotionalTone(text) {
     pythonProcess.stdin.end();
   });
 }
-
 function fallbackUrgencyDetection(text) {
   const textLower = text.toLowerCase();
   
