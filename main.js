@@ -259,9 +259,9 @@ function createEnhancedNotificationHTML(emailData) {
         <span class="btn-icon">🗑️</span>
         <span class="btn-text">Delete</span>
       </button>
-      <button class="quick-btn snooze" data-message-id="${emailData.id}">
-        <span class="btn-icon">⏰</span>
-        <span class="btn-text">Snooze</span>
+      <button class="quick-btn star" data-message-id="${emailData.id}">
+        <span class="btn-icon">⭐</span>
+        <span class="btn-text">Star</span>
       </button>
     </div>
   `;
@@ -615,8 +615,8 @@ function createEnhancedNotificationHTML(emailData) {
           color: white;
         }
 
-        .quick-btn.snooze:hover {
-          background: #f59e0b;
+        .quick-btn.star:hover {
+          background: #f59e0b; /* Keep yellow for star, or choose another color */
           color: white;
         }
 
@@ -739,20 +739,30 @@ function createEnhancedNotificationHTML(emailData) {
             e.stopPropagation();
             const messageId = btn.dataset.messageId;
             const action = btn.classList.contains('mark-read') ? 'mark-read' :
-                          btn.classList.contains('trash') ? 'move-to-trash' : 'snooze-email';
+                          btn.classList.contains('trash') ? 'move-to-trash' :
+                          btn.classList.contains('star') ? 'snooze-email' : ''; // Updated to use 'star' class
             
             btn.style.transform = 'scale(0.95)';
             btn.style.opacity = '0.7';
             
             try {
               let result;
+              // The 'snooze-email' IPC handler is now used for starring/unstarring
+              // The 'days' parameter (1) is ignored by the updated toggleStarEmail function
               if (action === 'snooze-email') {
-                result = await window.electronAPI?.send('snooze-email', messageId, 1);
+                result = await window.electronAPI?.send('snooze-email', messageId);
               } else {
                 result = await window.electronAPI?.send(action, messageId);
               }
               
-              btn.innerHTML = '<span class="btn-icon">✓</span><span class="btn-text">Done</span>';
+              // UI update for star will be handled by the main process based on success and starred state
+              // For other actions, keep the generic "Done"
+              if (action !== 'snooze-email') {
+                 btn.innerHTML = '<span class="btn-icon">✓</span><span class="btn-text">Done</span>';
+              }
+              // If it was a star action, the main process will send specific feedback.
+              // We can add a temporary state here or let main process handle it entirely.
+              // For now, let main process handle the feedback for star actions.
               btn.style.background = '#10b981';
               btn.style.color = 'white';
               
@@ -1298,66 +1308,48 @@ async function moveToTrash(messageId) {
   }
 }
 
-// Note: Gmail API doesn't support snooze, so we'll track it locally
-const snoozedEmails = new Map();
-
-// Enhanced snooze functionality with Gmail labels
-async function snoozeEmail(messageId, days = 1) {
+// Toggle Star functionality
+async function toggleStarEmail(messageId) {
   try {
-    console.log(`Attempting to snooze email ${messageId} for ${days} days...`);
-    
-    // Gmail API doesn't have native snooze, so we'll:
-    // 1. Remove from inbox
-    // 2. Add a custom snooze label
-    // 3. Track locally for restoration
-    
-    const snoozeUntil = new Date();
-    snoozeUntil.setDate(snoozeUntil.getDate() + days);
-    
-    // Create or get snooze label
-    const snoozeLabelName = 'Snoozed_EmailMonitor';
-    let snoozeLabelId = await getOrCreateLabel(snoozeLabelName);
-    
-    if (!snoozeLabelId) {
-      return { success: false, error: 'Failed to create snooze label' };
-    }
-    
-    // Remove from inbox and add snooze label, mark as read
-    const result = await gmail.users.messages.modify({
+    console.log(`Attempting to toggle star for email ${messageId}...`);
+
+    // Get current labels
+    const message = await gmail.users.messages.get({
       userId: 'me',
       id: messageId,
-      resource: {
-        addLabelIds: [snoozeLabelId],
-        removeLabelIds: ['INBOX', 'UNREAD']
-      }
+      format: 'metadata',
+      metadataHeaders: ['labelIds'],
     });
-    
-    // Store snooze info locally
-    const snoozeData = {
-      messageId,
-      snoozeUntil: snoozeUntil.toISOString(),
-      originalLabels: ['INBOX'], // We'll restore to inbox
-      days
-    };
-    
-    // Save to local storage/file
-    saveSnoozedEmail(snoozeData);
-    
-    console.log(`Successfully snoozed email ${messageId} until ${snoozeUntil}`);
-    
-    // Update local tracking
-    knownEmailIds.delete(messageId);
-    
-    return { 
-      success: true, 
-      result,
-      snoozeUntil: snoozeUntil.toISOString(),
-      message: `Snoozed for ${days} day${days > 1 ? 's' : ''}` 
-    };
-    
+
+    const labels = message.data.labelIds || [];
+    const isStarred = labels.includes('STARRED');
+
+    if (isStarred) {
+      // Remove STARRED label
+      await gmail.users.messages.modify({
+        userId: 'me',
+        id: messageId,
+        resource: {
+          removeLabelIds: ['STARRED'],
+        },
+      });
+      console.log(`Successfully unstarred email ${messageId}`);
+      return { success: true, starred: false };
+    } else {
+      // Add STARRED label
+      await gmail.users.messages.modify({
+        userId: 'me',
+        id: messageId,
+        resource: {
+          addLabelIds: ['STARRED'],
+        },
+      });
+      console.log(`Successfully starred email ${messageId}`);
+      return { success: true, starred: true };
+    }
   } catch (error) {
-    console.error('Snooze email failed:', error);
-    
+    console.error('Toggle star failed:', error);
+
     if (error.code === 404) {
       return { success: false, error: 'Email not found' };
     } else if (error.code === 403) {
@@ -1365,130 +1357,10 @@ async function snoozeEmail(messageId, days = 1) {
     } else if (error.code === 401) {
       return { success: false, error: 'Authentication required' };
     }
-    
+
     return { success: false, error: error.message };
   }
 }
-async function getOrCreateLabel(labelName) {
-  try {
-    // First, try to find existing label
-    const labelsResponse = await gmail.users.labels.list({ userId: 'me' });
-    const existingLabel = labelsResponse.data.labels.find(
-      label => label.name === labelName
-    );
-    
-    if (existingLabel) {
-      return existingLabel.id;
-    }
-    
-    // Create new label if it doesn't exist
-    const createResponse = await gmail.users.labels.create({
-      userId: 'me',
-      resource: {
-        name: labelName,
-        labelListVisibility: 'labelShow',
-        messageListVisibility: 'show',
-        type: 'user'
-      }
-    });
-    
-    return createResponse.data.id;
-  } catch (error) {
-    console.error('Error creating/getting label:', error);
-    return null;
-  }
-}
-
-// Local storage for snoozed emails
-const SNOOZED_EMAILS_FILE = path.join(__dirname, 'snoozed_emails.json');
-
-function saveSnoozedEmail(snoozeData) {
-  try {
-    let snoozedEmails = [];
-    
-    if (fs.existsSync(SNOOZED_EMAILS_FILE)) {
-      const fileContent = fs.readFileSync(SNOOZED_EMAILS_FILE, 'utf8');
-      snoozedEmails = JSON.parse(fileContent);
-    }
-    
-    // Remove any existing entry for this message
-    snoozedEmails = snoozedEmails.filter(email => email.messageId !== snoozeData.messageId);
-    
-    // Add new entry
-    snoozedEmails.push(snoozeData);
-    
-    fs.writeFileSync(SNOOZED_EMAILS_FILE, JSON.stringify(snoozedEmails, null, 2));
-  } catch (error) {
-    console.error('Error saving snoozed email:', error);
-  }
-}
-
-function loadSnoozedEmails() {
-  try {
-    if (fs.existsSync(SNOOZED_EMAILS_FILE)) {
-      const fileContent = fs.readFileSync(SNOOZED_EMAILS_FILE, 'utf8');
-      return JSON.parse(fileContent);
-    }
-  } catch (error) {
-    console.error('Error loading snoozed emails:', error);
-  }
-  return [];
-}
-async function checkSnoozedEmails() {
-  const snoozedEmails = loadSnoozedEmails();
-  const now = new Date();
-  const toRestore = [];
-  const stillSnoozed = [];
-  
-  for (const snooze of snoozedEmails) {
-    const snoozeUntil = new Date(snooze.snoozeUntil);
-    
-    if (now >= snoozeUntil) {
-      toRestore.push(snooze);
-    } else {
-      stillSnoozed.push(snooze);
-    }
-  }
-  
-  // Restore emails that are ready
-  for (const snooze of toRestore) {
-    try {
-      await restoreSnoozedEmail(snooze);
-    } catch (error) {
-      console.error(`Failed to restore snoozed email ${snooze.messageId}:`, error);
-      // Keep in snoozed list if restoration failed
-      stillSnoozed.push(snooze);
-    }
-  }
-  
-  // Update the snoozed emails file
-  if (toRestore.length > 0) {
-    fs.writeFileSync(SNOOZED_EMAILS_FILE, JSON.stringify(stillSnoozed, null, 2));
-  }
-}
-
-async function restoreSnoozedEmail(snoozeData) {
-  try {
-    const snoozeLabelName = 'Snoozed_EmailMonitor';
-    const snoozeLabelId = await getOrCreateLabel(snoozeLabelName);
-    
-    // Restore to inbox and remove snooze label
-    await gmail.users.messages.modify({
-      userId: 'me',
-      id: snoozeData.messageId,
-      resource: {
-        addLabelIds: ['INBOX', 'UNREAD'],
-        removeLabelIds: [snoozeLabelId]
-      }
-    });
-    
-    console.log(`Restored snoozed email ${snoozeData.messageId} to inbox`);
-  } catch (error) {
-    console.error(`Failed to restore email ${snoozeData.messageId}:`, error);
-    throw error;
-  }
-}
-
 
 async function captureEmailWithPuppeteer(messageId) {
   let browser;
@@ -1894,32 +1766,45 @@ ipcMain.handle('move-to-trash', async (event, messageId) => {
 });
 
 ipcMain.handle('snooze-email', async (event, messageId, days = 1) => {
-  const result = await snoozeEmail(messageId, days);
-  
+  // Although the function is renamed, we keep the IPC handler name for now
+  // to avoid breaking changes in renderer.js or preload.js
+  const result = await toggleStarEmail(messageId); // Call the renamed function
+
   // Send result back to notification window for UI feedback
+  // This part might need adjustment based on how starring/unstarring should be reflected in the UI
   const notification = BrowserWindow.fromWebContents(event.sender);
   if (notification && !notification.isDestroyed()) {
+    // Use 'quick-btn star' to select the button
+    const buttonSelector = `.quick-btn.star[data-message-id="${messageId}"]`;
+
     if (result.success) {
+      const starIcon = '⭐'; // Using a consistent star icon
+      const statusText = result.starred ? 'Starred' : 'Unstarred';
+      const backgroundColor = result.starred ? '#f59e0b' : '#7f8c8d'; // Yellow for starred, grey for unstarred
+
       notification.webContents.executeJavaScript(`
-        const btn = document.querySelector('.quick-btn.snooze[data-message-id="${messageId}"]');
+        const btn = document.querySelector('${buttonSelector}');
         if (btn) {
-          btn.innerHTML = '<span class="btn-icon">😴</span><span class="btn-text">Snoozed</span>';
-          btn.style.background = '#10b981';
+          btn.innerHTML = '<span class="btn-icon">${starIcon}</span><span class="btn-text">${statusText}</span>';
+          btn.style.background = '${backgroundColor}';
           btn.style.color = 'white';
         }
       `);
     } else {
+      // On error, revert to "Star" text and a default/error appearance
       notification.webContents.executeJavaScript(`
-        const btn = document.querySelector('.quick-btn.snooze[data-message-id="${messageId}"]');
+        const btn = document.querySelector('${buttonSelector}');
         if (btn) {
-          btn.innerHTML = '<span class="btn-icon">✗</span><span class="btn-text">Error</span>';
-          btn.style.background = '#ef4444';
+          btn.innerHTML = '<span class="btn-icon">⭐</span><span class="btn-text">Star</span>'; // Revert to original "Star"
+          btn.style.background = '#ef4444'; // Error color
           btn.style.color = 'white';
+          // Optionally, add a title or other indication of error
+          btn.title = 'Error: ${result.error || 'Could not star email'}';
         }
       `);
     }
   }
-  
+
   return result;
 });
 app.whenReady().then(async () => {
