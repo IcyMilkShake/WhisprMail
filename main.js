@@ -97,6 +97,9 @@ function createCustomNotification(emailData) {
   // Load the notification content
   notificationWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(notificationHTML)}`);
   
+  if (notificationWindow && notificationWindow.webContents) {
+    notificationWindow.webContents.openDevTools({ mode: 'detach' });
+  }
   // Handle attachment clicks
   notificationWindow.webContents.on('ipc-message', async (event, channel, ...args) => {
     if (channel === 'download-attachment') {
@@ -717,8 +720,10 @@ function createEnhancedNotificationHTML(emailData) {
         console.log('Notification created with urgency:', '${emailData.urgency}');
         
         // Handle attachment clicks
-        document.querySelectorAll('.attachment-item').forEach(item => {
-          item.addEventListener('click', (e) => {
+        const attachmentItems = document.querySelectorAll('.attachment-item'); // <-- ADDED
+        console.log('[Notification LOG] Found attachment items:', attachmentItems.length, attachmentItems); // <-- ADDED
+        attachmentItems.forEach(item => { // <-- MODIFIED to use the 'attachmentItems' variable
+          item.addEventListener('click', async (e) => { // Added async
             e.stopPropagation();
             const messageId = item.dataset.messageId;
             const attachmentId = item.dataset.attachmentId;
@@ -734,7 +739,10 @@ function createEnhancedNotificationHTML(emailData) {
         });
         
         // Handle quick action clicks
-        document.querySelectorAll('.quick-btn').forEach(btn => {
+        const quickButtons = document.querySelectorAll('.quick-btn'); // <-- ADDED
+        console.log('[Notification LOG] Found quick buttons:', quickButtons.length, quickButtons); // <-- ADDED
+        quickButtons.forEach(btn => { // <-- MODIFIED to use the 'quickButtons' variable
+              
           btn.addEventListener('click', async (e) => {
             e.stopPropagation();
             const messageId = btn.dataset.messageId;
@@ -1196,26 +1204,20 @@ async function downloadAttachment(messageId, attachmentId, filename) {
 
 // Gmail API Actions
 async function markAsRead(messageId) {
+  console.log(`[GMAIL API LOG] Attempting to mark email ${messageId} as read...`); // <-- MODIFIED existing log for clarity
   try {
-    console.log(`Attempting to mark email ${messageId} as read...`);
-    
-    // Remove the UNREAD label
-    const result = await gmail.users.messages.modify({
+    const apiResponse = await gmail.users.messages.modify({ // <-- STORED response
       userId: 'me',
       id: messageId,
       resource: {
         removeLabelIds: ['UNREAD']
       }
     });
-    
-    console.log(`Successfully marked email ${messageId} as read`);
-    
-    // Update local tracking
+    console.log(`[GMAIL API LOG] Successfully marked email ${messageId} as read. API Response:`, JSON.stringify(apiResponse, null, 2)); // <-- MODIFIED to log full response
     knownEmailIds.delete(messageId);
-    
-    return { success: true, result };
+    return { success: true, result: apiResponse.data }; // Return apiResponse.data
   } catch (error) {
-    console.error('Mark as read failed:', error);
+    console.error('[GMAIL API LOG] Mark as read failed for ${messageId}:', error.response ? JSON.stringify(error.response.data, null, 2) : error.message); // <-- MODIFIED to log more error detail
     
     // Handle specific error cases
     if (error.code === 404) {
@@ -1230,66 +1232,19 @@ async function markAsRead(messageId) {
   }
 }// Enhanced Gmail API Actions with proper error handling and scope management
 
-// First, update the Gmail scopes to include modify permissions
-const SCOPES = [
-  'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/gmail.modify',
-  'https://www.googleapis.com/auth/gmail.labels'
-];
-
-// Improved Gmail API Actions
-async function markAsRead(messageId) {
-  try {
-    console.log(`Attempting to mark email ${messageId} as read...`);
-    
-    // Remove the UNREAD label
-    const result = await gmail.users.messages.modify({
-      userId: 'me',
-      id: messageId,
-      resource: {
-        removeLabelIds: ['UNREAD']
-      }
-    });
-    
-    console.log(`Successfully marked email ${messageId} as read`);
-    
-    // Update local tracking
-    knownEmailIds.delete(messageId);
-    
-    return { success: true, result };
-  } catch (error) {
-    console.error('Mark as read failed:', error);
-    
-    // Handle specific error cases
-    if (error.code === 404) {
-      return { success: false, error: 'Email not found' };
-    } else if (error.code === 403) {
-      return { success: false, error: 'Permission denied - please re-authenticate' };
-    } else if (error.code === 401) {
-      return { success: false, error: 'Authentication required' };
-    }
-    
-    return { success: false, error: error.message };
-  }
-}
 
 async function moveToTrash(messageId) {
+  console.log(`[GMAIL API LOG] Attempting to move email ${messageId} to trash...`); // <-- MODIFIED
   try {
-    console.log(`Attempting to move email ${messageId} to trash...`);
-    
-    const result = await gmail.users.messages.trash({
+    const apiResponse = await gmail.users.messages.trash({ // <-- STORED response
       userId: 'me',
       id: messageId
     });
-    
-    console.log(`Successfully moved email ${messageId} to trash`);
-    
-    // Update local tracking
+    console.log(`[GMAIL API LOG] Successfully moved email ${messageId} to trash. API Response:`, JSON.stringify(apiResponse, null, 2)); // <-- MODIFIED
     knownEmailIds.delete(messageId);
-    
-    return { success: true, result };
+    return { success: true, result: apiResponse.data }; // Return apiResponse.data
   } catch (error) {
-    console.error('Move to trash failed:', error);
+    console.error(`[GMAIL API LOG] Move to trash failed for ${messageId}:`, error.response ? JSON.stringify(error.response.data, null, 2) : error.message); // <-- MODIFIED
     
     // Handle specific error cases
     if (error.code === 404) {
@@ -1306,45 +1261,39 @@ async function moveToTrash(messageId) {
 
 // Toggle Star functionality
 async function toggleStarEmail(messageId) {
+  console.log(`[GMAIL API LOG] Attempting to toggle star for email ${messageId}...`); // <-- MODIFIED
   try {
-    console.log(`Attempting to toggle star for email ${messageId}...`);
-
-    // Get current labels
     const message = await gmail.users.messages.get({
       userId: 'me',
       id: messageId,
       format: 'metadata',
       metadataHeaders: ['labelIds'],
     });
+    console.log(`[GMAIL API LOG] Fetched labels for ${messageId}. Response:`, JSON.stringify(message.data, null, 2)); // <-- ADD THIS
 
     const labels = message.data.labelIds || [];
     const isStarred = labels.includes('STARRED');
+    let modifyResource;
 
     if (isStarred) {
-      // Remove STARRED label
-      await gmail.users.messages.modify({
-        userId: 'me',
-        id: messageId,
-        resource: {
-          removeLabelIds: ['STARRED'],
-        },
-      });
-      console.log(`Successfully unstarred email ${messageId}`);
-      return { success: true, starred: false };
+      modifyResource = { removeLabelIds: ['STARRED'] };
+      console.log(`[GMAIL API LOG] Attempting to unstar email ${messageId}`);
     } else {
-      // Add STARRED label
-      await gmail.users.messages.modify({
-        userId: 'me',
-        id: messageId,
-        resource: {
-          addLabelIds: ['STARRED'],
-        },
-      });
-      console.log(`Successfully starred email ${messageId}`);
-      return { success: true, starred: true };
+      modifyResource = { addLabelIds: ['STARRED'] };
+      console.log(`[GMAIL API LOG] Attempting to star email ${messageId}`);
     }
+
+    const apiResponse = await gmail.users.messages.modify({ // <-- STORED response
+      userId: 'me',
+      id: messageId,
+      resource: modifyResource
+    });
+    console.log(`[GMAIL API LOG] Successfully toggled star for ${messageId}. New state: ${!isStarred}. API Response:`, JSON.stringify(apiResponse, null, 2)); // <-- MODIFIED
+
+    return { success: true, starred: !isStarred, result: apiResponse.data }; // Return apiResponse.data
   } catch (error) {
-    console.error('Toggle star failed:', error);
+    console.error(`[GMAIL API LOG] Toggle star failed for ${messageId}:`, error.response ? JSON.stringify(error.response.data, null, 2) : error.message); // <-- MODIFIED
+    //
 
     if (error.code === 404) {
       return { success: false, error: 'Email not found' };
@@ -1701,9 +1650,14 @@ ipcMain.handle('download-attachment', async (event, messageId, attachmentId, fil
   }
 });
 ipcMain.handle('mark-as-read', async (event, messageId) => {
+    console.log(`[IPC LOG] Received 'mark-as-read' for messageId: ${messageId}`); // <-- ADD THIS
+  if (!messageId) { // <-- ADD THIS BLOCK
+    console.error('[IPC LOG] Aborting mark-as-read: messageId is undefined or null.');
+    return { success: false, error: 'messageId is undefined' };
+  }
   const result = await markAsRead(messageId);
+  console.log(`[IPC LOG] Result from markAsRead for ${messageId}:`, JSON.stringify(result, null, 2)); // <-- ADD THIS
   
-  // Send result back to notification window for UI feedback
   const notification = BrowserWindow.fromWebContents(event.sender);
   if (notification && !notification.isDestroyed()) {
     if (result.success) {
@@ -1732,9 +1686,14 @@ ipcMain.handle('mark-as-read', async (event, messageId) => {
 });
 
 ipcMain.handle('move-to-trash', async (event, messageId) => {
+  console.log(`[IPC LOG] Received 'move-to-trash' for messageId: ${messageId}`); // <-- ADD THIS
+  if (!messageId) { // <-- ADD THIS BLOCK
+    console.error('[IPC LOG] Aborting move-to-trash: messageId is undefined or null.');
+    return { success: false, error: 'messageId is undefined' };
+  }
   const result = await moveToTrash(messageId);
-  
-  // Send result back to notification window for UI feedback
+  console.log(`[IPC LOG] Result from moveToTrash for ${messageId}:`, JSON.stringify(result, null, 2)); // <-- ADD THIS
+
   const notification = BrowserWindow.fromWebContents(event.sender);
   if (notification && !notification.isDestroyed()) {
     if (result.success) {
@@ -1762,12 +1721,14 @@ ipcMain.handle('move-to-trash', async (event, messageId) => {
 });
 
 ipcMain.handle('snooze-email', async (event, messageId, days = 1) => {
-  // Although the function is renamed, we keep the IPC handler name for now
-  // to avoid breaking changes in renderer.js or preload.js
-  const result = await toggleStarEmail(messageId); // Call the renamed function
+  console.log(`[IPC LOG] Received 'snooze-email' (toggleStar) for messageId: ${messageId}`); // <-- ADD THIS
+  if (!messageId) { // <-- ADD THIS BLOCK
+    console.error('[IPC LOG] Aborting snooze-email (toggleStar): messageId is undefined or null.');
+    return { success: false, error: 'messageId is undefined' };
+  }
+  const result = await toggleStarEmail(messageId);
+  console.log(`[IPC LOG] Result from toggleStarEmail for ${messageId}:`, JSON.stringify(result, null, 2)); // <-- ADD THIS
 
-  // Send result back to notification window for UI feedback
-  // This part might need adjustment based on how starring/unstarring should be reflected in the UI
   const notification = BrowserWindow.fromWebContents(event.sender);
   if (notification && !notification.isDestroyed()) {
     // Use 'quick-btn star' to select the button
