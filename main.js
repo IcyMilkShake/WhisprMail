@@ -1059,10 +1059,6 @@ async function initializeGmail() {
   }
   
   gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
-  
-  // Start checking for snoozed emails to restore
-  setInterval(checkSnoozedEmails, 60000); // Check every minute
-  checkSnoozedEmails(); // Initial check
 }
 
 
