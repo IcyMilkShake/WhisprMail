@@ -97,9 +97,6 @@ function createCustomNotification(emailData) {
   // Load the notification content
   notificationWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(notificationHTML)}`);
   
-  if (notificationWindow && notificationWindow.webContents) {
-    notificationWindow.webContents.openDevTools({ mode: 'detach' });
-  }
   // Handle attachment clicks
   notificationWindow.webContents.on('ipc-message', async (event, channel, ...args) => {
     if (channel === 'download-attachment') {
@@ -121,11 +118,11 @@ function createCustomNotification(emailData) {
   });
   
   // Auto-close after 15 seconds (increased for longer content)
-  setTimeout(() => {
-    if (!notificationWindow.isDestroyed()) {
-      closeNotificationWithAnimation(notificationWindow);
-    }
-  }, 15000);
+  // setTimeout(() => {
+  //   if (!notificationWindow.isDestroyed()) {
+  //     closeNotificationWithAnimation(notificationWindow);
+  //   }
+  // }, 300000);
 
   return notificationWindow;
 }
@@ -728,62 +725,91 @@ function createEnhancedNotificationHTML(emailData) {
             const messageId = item.dataset.messageId;
             const attachmentId = item.dataset.attachmentId;
             const filename = item.dataset.filename;
+
+            console.log("[Notification LOG] Attachment item clicked. Message ID: '${messageId}', Attachment ID: '${attachmentId}', Filename: '${filename}'");
             
             item.style.transform = 'scale(0.95)';
             setTimeout(() => {
               item.style.transform = '';
             }, 150);
             
-            window.electronAPI?.send('download-attachment', messageId, attachmentId, filename);
+            try {
+              console.log("[Notification LOG] Invoking IPC channel 'download-attachment' for messageId '${messageId}'"); // Added
+              await window.electronAPI.invoke('download-attachment', messageId, attachmentId, filename);
+              console.log("[Notification LOG] 'download-attachment' invoked for messageId '${messageId}'"); // Added
+              // UI update for download success can be handled here or rely on main process
+            } catch (error) {
+              console.error('[Notification LOG] Download attachment error:', error);
+              // UI update for download error
+            }
           });
         });
         
         // Handle quick action clicks
-        const quickButtons = document.querySelectorAll('.quick-btn'); // <-- ADDED
-        console.log('[Notification LOG] Found quick buttons:', quickButtons.length, quickButtons); // <-- ADDED
-        quickButtons.forEach(btn => { // <-- MODIFIED to use the 'quickButtons' variable
-              
+        const quickButtons = document.querySelectorAll('.quick-btn');
+        console.log('[Notification LOG] Found quick buttons:', quickButtons.length, quickButtons);
+        quickButtons.forEach(btn => {
           btn.addEventListener('click', async (e) => {
-            e.stopPropagation();
+            e.stopPropagation(); // Keep this at the top if it's not impacting the log line
             const messageId = btn.dataset.messageId;
-            const action = btn.classList.contains('mark-read') ? 'mark-read' :
+            // Action string derivation is confirmed to be correct from previous steps.
+            // It correctly uses 'mark-read' class to set 'mark-as-read' action.
+            const action = btn.classList.contains('mark-read') ? 'mark-as-read' : 
                           btn.classList.contains('trash') ? 'move-to-trash' :
-                          btn.classList.contains('star') ? 'snooze-email' : ''; // Updated to use 'star' class
+                          btn.classList.contains('star') ? 'snooze-email' : '';
             
+            console.log("[Notification LOG] Quick action button clicked. Action: '${action}', Message ID: '${messageId}'");
+
             btn.style.transform = 'scale(0.95)';
             btn.style.opacity = '0.7';
             
             try {
               let result;
-              // The 'snooze-email' IPC handler is now used for starring/unstarring
-              // The 'days' parameter (1) is ignored by the updated toggleStarEmail function
-              if (action === 'snooze-email') {
-                result = await window.electronAPI?.send('snooze-email', messageId);
+              if (action) { // Check if action is a valid string
+                console.log("[Notification LOG] Invoking IPC channel '${action}' for messageId '${messageId}'"); // Added for more clarity
+                result = await window.electronAPI.invoke(action, messageId);
+                console.log("[Notification LOG] Result for action '${action}', messageId '${messageId}':", result); // Added
               } else {
-                result = await window.electronAPI?.send(action, messageId);
+                console.error('[Notification LOG] Invalid action for IPC call:', action);
+                throw new Error('Invalid action for IPC call');
               }
-              
-              // UI update for star will be handled by the main process based on success and starred state
-              // For other actions, keep the generic "Done"
-              if (action !== 'snooze-email') {
-                 btn.innerHTML = '<span class="btn-icon">✓</span><span class="btn-text">Done</span>';
+
+              // UI update logic (can be kept or refined based on whether 'result' is now correctly populated)
+              if (result && result.success) { // Check result and result.success
+                if (action !== 'snooze-email') { // 'snooze-email' is the channel for toggleStar
+                   btn.innerHTML = '<span class="btn-icon">✓</span><span class="btn-text">Done</span>';
+                } else {
+                  // For star, the main process ipc handler itself sends specific UI updates.
+                  // So this part might not be strictly needed if the main process feedback is sufficient and timely.
+                  // However, we can leave a generic success or rely on main process.
+                  // For now, let's assume the main process handles the specific "Starred/Unstarred" text.
+                }
+                btn.style.background = '#10b981'; // Green for success
+                btn.style.color = 'white';
+              } else if (result) { // API call was made but failed
+                console.error("[Notification LOG] Action '${action}' failed for messageId '${messageId}'. Result:", result);
+                btn.innerHTML = '<span class="btn-icon">✗</span><span class="btn-text">Failed</span>';
+                btn.style.background = '#ef4444'; // Red for failure
+                btn.style.color = 'white';
               }
-              // If it was a star action, the main process will send specific feedback.
-              // We can add a temporary state here or let main process handle it entirely.
-              // For now, let main process handle the feedback for star actions.
-              btn.style.background = '#10b981';
-              btn.style.color = 'white';
-              
-              setTimeout(() => closeNotification(), 1000);
+              // Ensure any previous setTimeout here is removed or commented.
+              console.log('[Notification LOG] Action processed, closing notification in 10 seconds.');
+              setTimeout(() => closeNotification(), 10000); // Close after 10 seconds
+
             } catch (error) {
-              btn.innerHTML = '<span class="btn-icon">✗</span><span class="btn-text">Failed</span>';
+              console.error("[Notification LOG] Error during action ${action} for ${messageId}:", error);
+              btn.innerHTML = '<span class="btn-icon">✗</span><span class="btn-text">Error</span>';
               btn.style.background = '#ef4444';
               btn.style.color = 'white';
-              
+              // setTimeout for reverting style on error
               setTimeout(() => {
                 btn.style.transform = '';
                 btn.style.opacity = '';
+                // Revert innerHTML if needed, e.g., back to original text
+                // This part needs to be careful not to cause infinite loops or state issues
               }, 2000);
+              console.log('[Notification LOG] Error occurred, closing notification in 10 seconds.');
+              setTimeout(() => closeNotification(), 10000); // Close after 10 seconds
             }
           });
         });
@@ -1204,20 +1230,26 @@ async function downloadAttachment(messageId, attachmentId, filename) {
 
 // Gmail API Actions
 async function markAsRead(messageId) {
-  console.log(`[GMAIL API LOG] Attempting to mark email ${messageId} as read...`); // <-- MODIFIED existing log for clarity
   try {
-    const apiResponse = await gmail.users.messages.modify({ // <-- STORED response
+    console.log(`Attempting to mark email ${messageId} as read...`);
+    
+    // Remove the UNREAD label
+    const result = await gmail.users.messages.modify({
       userId: 'me',
       id: messageId,
       resource: {
         removeLabelIds: ['UNREAD']
       }
     });
-    console.log(`[GMAIL API LOG] Successfully marked email ${messageId} as read. API Response:`, JSON.stringify(apiResponse, null, 2)); // <-- MODIFIED to log full response
+    
+    console.log(`Successfully marked email ${messageId} as read`);
+    
+    // Update local tracking
     knownEmailIds.delete(messageId);
-    return { success: true, result: apiResponse.data }; // Return apiResponse.data
+    
+    return { success: true, result };
   } catch (error) {
-    console.error('[GMAIL API LOG] Mark as read failed for ${messageId}:', error.response ? JSON.stringify(error.response.data, null, 2) : error.message); // <-- MODIFIED to log more error detail
+    console.error('Mark as read failed:', error);
     
     // Handle specific error cases
     if (error.code === 404) {
@@ -1232,19 +1264,66 @@ async function markAsRead(messageId) {
   }
 }// Enhanced Gmail API Actions with proper error handling and scope management
 
+// First, update the Gmail scopes to include modify permissions
+const SCOPES = [
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.modify',
+  'https://www.googleapis.com/auth/gmail.labels'
+];
+
+// Improved Gmail API Actions
+async function markAsRead(messageId) {
+  try {
+    console.log(`Attempting to mark email ${messageId} as read...`);
+    
+    // Remove the UNREAD label
+    const result = await gmail.users.messages.modify({
+      userId: 'me',
+      id: messageId,
+      resource: {
+        removeLabelIds: ['UNREAD']
+      }
+    });
+    
+    console.log(`Successfully marked email ${messageId} as read`);
+    
+    // Update local tracking
+    knownEmailIds.delete(messageId);
+    
+    return { success: true, result };
+  } catch (error) {
+    console.error('Mark as read failed:', error);
+    
+    // Handle specific error cases
+    if (error.code === 404) {
+      return { success: false, error: 'Email not found' };
+    } else if (error.code === 403) {
+      return { success: false, error: 'Permission denied - please re-authenticate' };
+    } else if (error.code === 401) {
+      return { success: false, error: 'Authentication required' };
+    }
+    
+    return { success: false, error: error.message };
+  }
+}
 
 async function moveToTrash(messageId) {
-  console.log(`[GMAIL API LOG] Attempting to move email ${messageId} to trash...`); // <-- MODIFIED
   try {
-    const apiResponse = await gmail.users.messages.trash({ // <-- STORED response
+    console.log(`Attempting to move email ${messageId} to trash...`);
+    
+    const result = await gmail.users.messages.trash({
       userId: 'me',
       id: messageId
     });
-    console.log(`[GMAIL API LOG] Successfully moved email ${messageId} to trash. API Response:`, JSON.stringify(apiResponse, null, 2)); // <-- MODIFIED
+    
+    console.log(`Successfully moved email ${messageId} to trash`);
+    
+    // Update local tracking
     knownEmailIds.delete(messageId);
-    return { success: true, result: apiResponse.data }; // Return apiResponse.data
+    
+    return { success: true, result };
   } catch (error) {
-    console.error(`[GMAIL API LOG] Move to trash failed for ${messageId}:`, error.response ? JSON.stringify(error.response.data, null, 2) : error.message); // <-- MODIFIED
+    console.error('Move to trash failed:', error);
     
     // Handle specific error cases
     if (error.code === 404) {
@@ -1261,39 +1340,45 @@ async function moveToTrash(messageId) {
 
 // Toggle Star functionality
 async function toggleStarEmail(messageId) {
-  console.log(`[GMAIL API LOG] Attempting to toggle star for email ${messageId}...`); // <-- MODIFIED
   try {
+    console.log(`Attempting to toggle star for email ${messageId}...`);
+
+    // Get current labels
     const message = await gmail.users.messages.get({
       userId: 'me',
       id: messageId,
       format: 'metadata',
       metadataHeaders: ['labelIds'],
     });
-    console.log(`[GMAIL API LOG] Fetched labels for ${messageId}. Response:`, JSON.stringify(message.data, null, 2)); // <-- ADD THIS
 
     const labels = message.data.labelIds || [];
     const isStarred = labels.includes('STARRED');
-    let modifyResource;
 
     if (isStarred) {
-      modifyResource = { removeLabelIds: ['STARRED'] };
-      console.log(`[GMAIL API LOG] Attempting to unstar email ${messageId}`);
+      // Remove STARRED label
+      await gmail.users.messages.modify({
+        userId: 'me',
+        id: messageId,
+        resource: {
+          removeLabelIds: ['STARRED'],
+        },
+      });
+      console.log(`Successfully unstarred email ${messageId}`);
+      return { success: true, starred: false };
     } else {
-      modifyResource = { addLabelIds: ['STARRED'] };
-      console.log(`[GMAIL API LOG] Attempting to star email ${messageId}`);
+      // Add STARRED label
+      await gmail.users.messages.modify({
+        userId: 'me',
+        id: messageId,
+        resource: {
+          addLabelIds: ['STARRED'],
+        },
+      });
+      console.log(`Successfully starred email ${messageId}`);
+      return { success: true, starred: true };
     }
-
-    const apiResponse = await gmail.users.messages.modify({ // <-- STORED response
-      userId: 'me',
-      id: messageId,
-      resource: modifyResource
-    });
-    console.log(`[GMAIL API LOG] Successfully toggled star for ${messageId}. New state: ${!isStarred}. API Response:`, JSON.stringify(apiResponse, null, 2)); // <-- MODIFIED
-
-    return { success: true, starred: !isStarred, result: apiResponse.data }; // Return apiResponse.data
   } catch (error) {
-    console.error(`[GMAIL API LOG] Toggle star failed for ${messageId}:`, error.response ? JSON.stringify(error.response.data, null, 2) : error.message); // <-- MODIFIED
-    //
+    console.error('Toggle star failed:', error);
 
     if (error.code === 404) {
       return { success: false, error: 'Email not found' };
@@ -1650,14 +1735,9 @@ ipcMain.handle('download-attachment', async (event, messageId, attachmentId, fil
   }
 });
 ipcMain.handle('mark-as-read', async (event, messageId) => {
-    console.log(`[IPC LOG] Received 'mark-as-read' for messageId: ${messageId}`); // <-- ADD THIS
-  if (!messageId) { // <-- ADD THIS BLOCK
-    console.error('[IPC LOG] Aborting mark-as-read: messageId is undefined or null.');
-    return { success: false, error: 'messageId is undefined' };
-  }
   const result = await markAsRead(messageId);
-  console.log(`[IPC LOG] Result from markAsRead for ${messageId}:`, JSON.stringify(result, null, 2)); // <-- ADD THIS
   
+  // Send result back to notification window for UI feedback
   const notification = BrowserWindow.fromWebContents(event.sender);
   if (notification && !notification.isDestroyed()) {
     if (result.success) {
@@ -1686,14 +1766,9 @@ ipcMain.handle('mark-as-read', async (event, messageId) => {
 });
 
 ipcMain.handle('move-to-trash', async (event, messageId) => {
-  console.log(`[IPC LOG] Received 'move-to-trash' for messageId: ${messageId}`); // <-- ADD THIS
-  if (!messageId) { // <-- ADD THIS BLOCK
-    console.error('[IPC LOG] Aborting move-to-trash: messageId is undefined or null.');
-    return { success: false, error: 'messageId is undefined' };
-  }
   const result = await moveToTrash(messageId);
-  console.log(`[IPC LOG] Result from moveToTrash for ${messageId}:`, JSON.stringify(result, null, 2)); // <-- ADD THIS
-
+  
+  // Send result back to notification window for UI feedback
   const notification = BrowserWindow.fromWebContents(event.sender);
   if (notification && !notification.isDestroyed()) {
     if (result.success) {
@@ -1721,14 +1796,12 @@ ipcMain.handle('move-to-trash', async (event, messageId) => {
 });
 
 ipcMain.handle('snooze-email', async (event, messageId, days = 1) => {
-  console.log(`[IPC LOG] Received 'snooze-email' (toggleStar) for messageId: ${messageId}`); // <-- ADD THIS
-  if (!messageId) { // <-- ADD THIS BLOCK
-    console.error('[IPC LOG] Aborting snooze-email (toggleStar): messageId is undefined or null.');
-    return { success: false, error: 'messageId is undefined' };
-  }
-  const result = await toggleStarEmail(messageId);
-  console.log(`[IPC LOG] Result from toggleStarEmail for ${messageId}:`, JSON.stringify(result, null, 2)); // <-- ADD THIS
+  // Although the function is renamed, we keep the IPC handler name for now
+  // to avoid breaking changes in renderer.js or preload.js
+  const result = await toggleStarEmail(messageId); // Call the renamed function
 
+  // Send result back to notification window for UI feedback
+  // This part might need adjustment based on how starring/unstarring should be reflected in the UI
   const notification = BrowserWindow.fromWebContents(event.sender);
   if (notification && !notification.isDestroyed()) {
     // Use 'quick-btn star' to select the button
