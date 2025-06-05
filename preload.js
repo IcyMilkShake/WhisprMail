@@ -20,9 +20,17 @@ contextBridge.exposeInMainWorld('gmail', {
 // Electron API for notification windows (used when this preload is loaded in notification windows)
 contextBridge.exposeInMainWorld('electronAPI', {
   send: (channel, ...args) => {
-    const validChannels = ['download-attachment', 'close-notification', 'focus-main-window'];
-    if (validChannels.includes(channel)) {
+    const validSendChannels = ['close-notification', 'focus-main-window'];
+    if (validSendChannels.includes(channel)) {
       ipcRenderer.send(channel, ...args);
     }
+  },
+  invoke: (channel, ...args) => {
+    const validInvokeChannels = ['download-attachment', 'mark-as-read', 'move-to-trash', 'snooze-email'];
+    if (validInvokeChannels.includes(channel)) {
+      return ipcRenderer.invoke(channel, ...args);
+    }
+    // Optionally, return a rejected promise or throw an error for invalid channels
+    return Promise.reject(new Error(`Invalid invoke channel: ${channel}`));
   }
 });
