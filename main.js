@@ -1240,34 +1240,6 @@ function createEnhancedNotificationHTML(emailData) {
   return finalHTML;
 }
 
-
-// NOTE: Duplicated versions of summarizeText, detectEmotionalTone, fallbackUrgencyDetection,
-// and estimateReadTime have been removed.
-// Their definitions are consolidated elsewhere in the file (using executePythonScript or under UTILITY FUNCTIONS).
-
-// NOTE: The duplicated functions createAuthServer, initializeGmail, getNewEmails,
-// extractSenderName, processEmailContent, getEmailDetails, and the first downloadAttachment
-// have been removed. Their definitions are consolidated elsewhere in the file.
-
-// Gmail API Actions
-// Enhanced Gmail API Actions with proper error handling and scope management
-
-// Removing the duplicated SCOPES and associated functions.
-// This was previously identified as a source of error.
-// The SEARCH block targets the beginning of this duplicated section.
-// The REPLACE block is empty, effectively deleting this section.
-// End of the duplicated block to be deleted.
-
-// NOTE: The older versions of markAsRead, moveToTrash, and toggleStarEmail that were here
-// have been removed as per the refactoring task.
-// The versions used by IPC handlers are located further down under
-// `// --- GMAIL API ACTIONS (Called via IPC) ---`
-
-// NOTE: Duplicated versions of captureEmailWithPuppeteer, runPythonOCR, processEmailWithOCR,
-// checkForNewEmails, startMonitoring, and stopMonitoring have been removed.
-// Their definitions are consolidated elsewhere in the file.
-
-
 ipcMain.handle('download-attachment', async (event, messageId, attachmentId, filename) => {
   try {
     const filePath = await downloadAttachment(messageId, attachmentId, filename);
