@@ -29,6 +29,9 @@ let activeNotifications = new Set(); // Track active notification windows
 let settings = {
   enableSummary: false,
   enableVoiceReading: true,
+  enableReadTime: true, 
+  speakSenderName: true, // <-- ADD THIS LINE
+  speakSubject: true,    // <-- ADD THIS LINE
   huggingfaceToken: process.env.HUGGINGFACE_TOKEN, // Retain from .env
   showUrgency: true
 };
@@ -640,7 +643,7 @@ function createEnhancedNotificationHTML(emailData) {
     }
   }
 
-  const readTimeBadge = emailData.readTime ? 
+  const readTimeBadge = settings.enableReadTime && emailData.readTime ? 
     `<div class="read-time-badge">📖 ${emailData.readTime.minutes}m ${emailData.readTime.seconds}s</div>` : '';
 
   const summaryBadge = emailData.isSummary 
@@ -659,10 +662,6 @@ function createEnhancedNotificationHTML(emailData) {
       <button class="quick-btn trash" data-message-id="${emailData.id}">
         <span class="btn-icon">🗑️</span>
         <span class="btn-text">Delete</span>
-      </button>
-      <button class="quick-btn untrash" data-message-id="${emailData.id}">
-        <span class="btn-icon">🔄</span>
-        <span class="btn-text">Undelete</span>
       </button>
       <button class="quick-btn star" data-message-id="${emailData.id}">
         <span class="btn-icon">⭐</span>
@@ -1020,11 +1019,6 @@ function createEnhancedNotificationHTML(emailData) {
           color: white;
         }
 
-        .quick-btn.untrash:hover {
-          background: #3498db; /* Blue */
-          color: white;
-        }
-
         .quick-btn.star:hover {
           background: #f59e0b; /* Keep yellow for star, or choose another color */
           color: white;
@@ -1163,7 +1157,6 @@ function createEnhancedNotificationHTML(emailData) {
             console.log('[NOTIF SCRIPT DEBUG] messageId from button dataset:', messageId);
             const action = btn.classList.contains('mark-as-read') ? 'mark-as-read' :
                           btn.classList.contains('trash') ? 'move-to-trash' :
-                          btn.classList.contains('untrash') ? 'untrash-email' :
                           btn.classList.contains('star') ? 'snooze-email' : '';
             
             console.log(\`[Notification LOG] Quick action button clicked. Action: \${action}, Message ID: \${messageId}\`);
@@ -1183,9 +1176,7 @@ function createEnhancedNotificationHTML(emailData) {
               }
 
               if (result && result.success) {
-                if (action === 'untrash-email') {
-                  btn.innerHTML = '<span class="btn-icon">✓</span><span class="btn-text">Restored</span>';
-                } else if (action !== 'snooze-email') { 
+                if (action !== 'snooze-email') { 
                    btn.innerHTML = '<span class="btn-icon">✓</span><span class="btn-text">Done</span>';
                 }
                 btn.style.background = '#10b981';
@@ -1239,6 +1230,34 @@ function createEnhancedNotificationHTML(emailData) {
   console.log("Final HTML generated with urgency badge:", urgencyBadge ? "YES" : "NO");
   return finalHTML;
 }
+
+
+// NOTE: Duplicated versions of summarizeText, detectEmotionalTone, fallbackUrgencyDetection,
+// and estimateReadTime have been removed.
+// Their definitions are consolidated elsewhere in the file (using executePythonScript or under UTILITY FUNCTIONS).
+
+// NOTE: The duplicated functions createAuthServer, initializeGmail, getNewEmails,
+// extractSenderName, processEmailContent, getEmailDetails, and the first downloadAttachment
+// have been removed. Their definitions are consolidated elsewhere in the file.
+
+// Gmail API Actions
+// Enhanced Gmail API Actions with proper error handling and scope management
+
+// Removing the duplicated SCOPES and associated functions.
+// This was previously identified as a source of error.
+// The SEARCH block targets the beginning of this duplicated section.
+// The REPLACE block is empty, effectively deleting this section.
+// End of the duplicated block to be deleted.
+
+// NOTE: The older versions of markAsRead, moveToTrash, and toggleStarEmail that were here
+// have been removed as per the refactoring task.
+// The versions used by IPC handlers are located further down under
+// `// --- GMAIL API ACTIONS (Called via IPC) ---`
+
+// NOTE: Duplicated versions of captureEmailWithPuppeteer, runPythonOCR, processEmailWithOCR,
+// checkForNewEmails, startMonitoring, and stopMonitoring have been removed.
+// Their definitions are consolidated elsewhere in the file.
+
 
 ipcMain.handle('download-attachment', async (event, messageId, attachmentId, filename) => {
   try {
@@ -1493,21 +1512,6 @@ async function toggleStarEmail(messageId) { // This is the one used by IPC
   }
 }
 
-async function untrashEmail(messageId) { // This is the one used by IPC
-  try {
-    await gmail.users.messages.untrash({ userId: 'me', id: messageId });
-    // Add to knownEmailIds if it was previously removed by moveToTrash,
-    // though untrashing usually means it's back in inbox and might be picked up as "new"
-    // depending on labels. For simplicity, we don't explicitly manage knownEmailIds here
-    // as it might reappear as unread.
-    console.log(`Successfully untrashed email ${messageId} (IPC)`);
-    return { success: true, messageId };
-  } catch (error) {
-    console.error(`Untrash email failed for ${messageId} (IPC):`, error);
-    return { success: false, error: error.message, messageId, code: error.code };
-  }
-}
-
 // --- EMAIL MONITORING SERVICE ---
 async function checkForNewEmails() {
   if (!gmail || !isMonitoring) return;
@@ -1532,8 +1536,28 @@ async function checkForNewEmails() {
           createCustomNotification(notificationData);
 
           if (settings.enableVoiceReading) {
-            const voiceMsg = `New message from ${notificationData.from}. Subject: ${notificationData.subject}`;
-            say.speak(voiceMsg);
+            let voiceMsgParts = [];
+            
+            if (settings.speakSenderName && notificationData.from) {
+              voiceMsgParts.push(`New message from ${notificationData.from}.`);
+            }
+            
+            if (settings.speakSubject && notificationData.subject) {
+              voiceMsgParts.push(`Subject: ${notificationData.subject}.`);
+            }
+            
+            // ADD THIS: Include the email body/description
+            if (notificationData.body) {
+              voiceMsgParts.push(`Description: ${notificationData.body}.`);
+            }
+            
+            if (voiceMsgParts.length > 0) {
+              const voiceMsg = voiceMsgParts.join(' ');
+              say.speak(voiceMsg);
+            } else {
+              // Fallback if everything is off but voice reading is enabled
+              say.speak("You have a new email.");
+            }
           }
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('new-email', notificationData);
@@ -1608,5 +1632,3 @@ ipcMain.handle('update-settings', (event, newSettings) => {
 });
 
 ipcMain.handle('get-settings', () => settings);
-
-ipcMain.handle('untrash-email', async (event, messageId) => await untrashEmail(messageId)); // Uses the one under GMAIL API ACTIONS
