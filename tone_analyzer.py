@@ -259,3 +259,6 @@ if __name__ == "__main__":
     # analyze_text_goemotions_hybrid now includes "success": True in its valid returns.
     print(json.dumps(analysis_result))
     sys.exit(0) # Ensure exit with 0
+
+
+    # FIX THE TONE ANALYZER. LONG EMAILS WILL MAKE THE TONE ANALYZING GET ABSOLUTELY ASS WHIPPED
