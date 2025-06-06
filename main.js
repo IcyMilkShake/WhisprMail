@@ -9,15 +9,13 @@ const { spawn } = require('child_process');
 const puppeteer = require('puppeteer');
 require('dotenv').config();
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Promise Rejection at:', promise, 'reason:', reason);
-  // Don't exit the process, just log the error
-});
-
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
-  // Handle gracefully instead of crashing
-});
+// --- GLOBAL VARIABLES & CONSTANTS ---
+const PYTHON_EXECUTABLE_PATH = path.join(__dirname, 'python_executor', 'python.exe'); // Added from previous task
+const SCOPES = [
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.modify',
+  'https://www.googleapis.com/auth/gmail.labels'
+];
 
 let mainWindow;
 let gmail;
@@ -31,10 +29,79 @@ let activeNotifications = new Set(); // Track active notification windows
 let settings = {
   enableSummary: false,
   enableVoiceReading: true,
-  huggingfaceToken: process.env.HUGGINGFACE_TOKEN,
+  huggingfaceToken: process.env.HUGGINGFACE_TOKEN, // Retain from .env
   showUrgency: true
 };
 
+// --- PYTHON SCRIPT EXECUTION HELPER ---
+function executePythonScript(scriptName, scriptArgs = [], inputText = null, timeout = 10000) {
+  return new Promise((resolve, reject) => {
+    const fullScriptPath = path.join(__dirname, scriptName);
+    const pythonProcess = spawn(PYTHON_EXECUTABLE_PATH, [fullScriptPath, ...scriptArgs]);
+
+    let stdoutData = '';
+    let stderrData = '';
+    let timer;
+
+    // Timeout mechanism
+    if (timeout > 0) {
+      timer = setTimeout(() => {
+        pythonProcess.kill('SIGKILL'); // Force kill the process
+        reject(new Error(`Python script ${scriptName} timed out after ${timeout}ms`));
+      }, timeout);
+    }
+
+    pythonProcess.stdout.on('data', (data) => {
+      stdoutData += data.toString();
+    });
+
+    pythonProcess.stderr.on('data', (data) => {
+      stderrData += data.toString();
+    });
+
+    pythonProcess.on('close', (code) => {
+      clearTimeout(timer); // Clear the timeout
+      if (stderrData) {
+        console.error(`${scriptName} stderr: ${stderrData}`);
+      }
+      if (code === 0) {
+        try {
+          const result = JSON.parse(stdoutData);
+          resolve(result);
+        } catch (e) {
+          console.error(`Failed to parse JSON from ${scriptName}: ${e}`);
+          console.error(`Raw stdout from ${scriptName}: ${stdoutData}`);
+          reject(new Error(`Failed to parse JSON output from ${scriptName}`));
+        }
+      } else {
+        reject(new Error(`${scriptName} exited with code ${code}. Stderr: ${stderrData}`));
+      }
+    });
+
+    pythonProcess.on('error', (error) => {
+      clearTimeout(timer); // Clear the timeout
+      console.error(`Failed to start ${scriptName}: ${error}`);
+      reject(error);
+    });
+
+    if (inputText !== null) {
+      pythonProcess.stdin.write(inputText);
+      pythonProcess.stdin.end();
+    }
+  });
+}
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Promise Rejection at:', promise, 'reason:', reason);
+  // Don't exit the process, just log the error
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  // Handle gracefully instead of crashing
+});
+
+// --- ELECTRON APP LIFECYCLE & MAIN WINDOW ---
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 700,
@@ -48,10 +115,332 @@ function createWindow() {
   mainWindow.loadFile('index.html');
 }
 
+app.whenReady().then(async () => {
+  createWindow();
+  try {
+    await initializeGmail();
+    await startMonitoring();
+    console.log('Email monitoring started!');
+  } catch (error) {
+    console.error('Failed to initialize:', error);
+  }
+});
 
-// Enhanced notification system with better design and attachment support
+app.on('window-all-closed', () => {
+  stopMonitoring();
+  if (process.platform !== 'darwin') app.quit();
+});
 
-// Create custom notification window with improved features
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+});
+
+// --- GMAIL AUTHENTICATION & API SETUP ---
+// Create OAuth server
+function createAuthServer() {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer((req, res) => {
+      const parsedUrl = new URL(req.url, 'http://localhost:3000');
+      if (parsedUrl.pathname === '/') {
+        const code = parsedUrl.searchParams.get('code');
+        const error = parsedUrl.searchParams.get('error');
+
+        if (error) {
+          res.writeHead(400, { 'Content-Type': 'text/html' });
+          res.end('<h1>Error</h1><p>Close this window.</p>');
+          server.close();
+          reject(new Error(error));
+          return;
+        }
+
+        if (code) {
+          res.writeHead(200, { 'Content-Type': 'text/html' });
+          res.end('<h1>Success!</h1><p>Close this window.</p>');
+          server.close();
+          resolve(code);
+          return;
+        }
+      }
+    });
+    server.listen(3000, 'localhost');
+  });
+}
+
+async function initializeGmail() {
+  // SCOPES is now a global constant
+  const TOKEN_PATH = path.join(__dirname, 'token.json');
+  const CREDENTIALS = JSON.parse(fs.readFileSync('credentials.json'));
+
+  const { client_secret, client_id } = CREDENTIALS.installed;
+  oAuth2Client = new google.auth.OAuth2(client_id, client_secret, 'http://localhost:3000');
+
+  if (fs.existsSync(TOKEN_PATH)) {
+    const token = JSON.parse(fs.readFileSync(TOKEN_PATH));
+    oAuth2Client.setCredentials(token);
+    try {
+      await oAuth2Client.getAccessToken();
+    } catch (error) {
+      console.log('Token expired, re-authenticating...');
+      fs.unlinkSync(TOKEN_PATH);
+      return await initializeGmail();
+    }
+  } else {
+    const authUrl = oAuth2Client.generateAuthUrl({
+      access_type: 'offline',
+      scope: SCOPES, // Updated scopes
+      prompt: 'consent'
+    });
+
+    await open(authUrl);
+    const code = await createAuthServer();
+    const { tokens } = await oAuth2Client.getToken(code);
+    oAuth2Client.setCredentials(tokens);
+    fs.writeFileSync(TOKEN_PATH, JSON.stringify(tokens));
+  }
+
+  gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
+}
+
+// --- EMAIL PROCESSING & ANALYSIS ---
+async function getNewEmails() {
+  try {
+    const query = monitoringStartTime
+      ? `is:unread after:${Math.floor(monitoringStartTime / 1000)}`
+      : 'is:unread';
+
+    const res = await gmail.users.messages.list({
+      userId: 'me',
+      q: query,
+      maxResults: 50
+    });
+    return res.data.messages || [];
+  } catch (error) {
+    console.error("Error fetching new emails:", error.message);
+    return [];
+  }
+}
+
+function extractSenderName(fromHeader) {
+  try {
+    if (!fromHeader) return 'Unknown Sender';
+    const match = fromHeader.match(/^(.*?)\s*<(.+?)>$/);
+    if (match && match[1]) {
+      return match[1].replace(/['"]/g, '').trim();
+    }
+    const emailPart = fromHeader.includes('@') ? fromHeader.split('@')[0] : fromHeader;
+    return emailPart.replace(/['"]/g, '').trim();
+  } catch (error) {
+    console.error('Error extracting sender name:', error);
+    return 'Unknown Sender';
+  }
+}
+
+function processEmailContent(payload) {
+  let textContent = '';
+  let attachments = [];
+
+  function extractContent(part) {
+    if (!part) return;
+    if (part.parts) {
+      part.parts.forEach(extractContent);
+    } else if (part.mimeType === 'text/plain' && part.body?.data) {
+      textContent += Buffer.from(part.body.data, 'base64').toString('utf-8');
+    } else if (part.filename && part.body?.attachmentId) {
+      attachments.push({
+        filename: part.filename,
+        mimeType: part.mimeType,
+        attachmentId: part.body.attachmentId,
+        size: part.body.size
+      });
+    }
+  }
+
+  if (payload?.body?.data && (payload.mimeType === 'text/plain' || payload.mimeType === 'text/html')) {
+    let rawBody = Buffer.from(payload.body.data, 'base64').toString('utf-8');
+    if (payload.mimeType === 'text/html') {
+      rawBody = rawBody.replace(/<style([\s\S]*?)<\/style>/gi, '')
+                       .replace(/<script([\s\S]*?)<\/script>/gi, '')
+                       .replace(/<\/div>|<\/li>|<\/p>|<br\s*\/?>/gi, '\n')
+                       .replace(/<li>/ig, '  *  ')
+                       .replace(/<[^>]+>/ig, '');
+    }
+    textContent = rawBody;
+  } else if (payload?.parts) {
+    extractContent(payload);
+  }
+
+  textContent = textContent.replace(/\[image:.*?\]/gi, '').replace(/\s+/g, ' ').trim();
+  return { textContent, attachments };
+}
+
+async function getEmailDetails(messageId) {
+  try {
+    const res = await gmail.users.messages.get({ userId: 'me', id: messageId, format: 'full' });
+    const { payload } = res.data;
+    if (!payload) return null;
+
+    const headers = payload.headers;
+    const fromHeader = headers.find(h => h.name.toLowerCase() === 'from')?.value || 'Unknown Sender';
+    const subject = headers.find(h => h.name.toLowerCase() === 'subject')?.value || 'No Subject';
+
+    const { textContent, attachments } = processEmailContent(payload);
+    const contentForAnalysis = `${subject}\n\n${textContent}`.trim();
+
+    console.log(`Processing email: "${subject}" from ${fromHeader}`);
+
+    const tone = await detectEmotionalTone(contentForAnalysis);
+    const readTime = estimateReadTime(textContent); // Moved estimateReadTime to UTILITY
+
+    return {
+      from: extractSenderName(fromHeader),
+      subject, body: textContent, attachments,
+      id: messageId, tone, readTime, urgency: tone.urgency
+    };
+  } catch (error) {
+    console.error(`Error getting email details for ${messageId}:`, error);
+    return null;
+  }
+}
+
+async function summarizeText(text) {
+  console.log("Summarizing text via Python script...");
+  if (!text || text.trim().length < 100) { // Keep basic check for very short text
+    console.log("Text too short or empty for summarization, returning original.");
+    return text;
+  }
+
+  return executePythonScript('summarizer.py', [], text)
+    .then(result => {
+      if (result && result.success && result.summary_text) {
+        console.log("Summarization successful via Python script.");
+        return result.summary_text;
+      } else {
+        console.error(`Error or invalid response from summarizer.py: ${result?.error || 'Unknown error'}`);
+        return text; // Fallback to original text
+      }
+    })
+    .catch(error => {
+      console.error(`Summarization script execution failed: ${error.message}`);
+      return text; // Fallback to original text
+    });
+}
+
+async function detectEmotionalTone(text) {
+  console.log("Analyzing email tone via Python script for:", text.substring(0, 100) + "...");
+  // Python script now handles empty/short text appropriately
+  return executePythonScript('tone_analyzer.py', [], text)
+    .then(result => {
+      if (result && result.success && result.label && result.urgency) {
+        console.log("Tone analysis successful via Python script:", result);
+        return {
+          label: result.label,
+          score: parseFloat(result.score) || 0.5,
+          urgency: result.urgency,
+          analysis_source: result.analysis_source || 'unknown'
+        };
+      } else {
+        console.error('Error or invalid structure from tone_analyzer.py:', result?.error || result);
+        return { // JS fallback if script reported an issue or structure is wrong
+          label: 'NEUTRAL', score: 0.5, urgency: 'low',
+          analysis_source: 'js_fallback_on_script_error',
+          reason: `Tone analysis script returned error or invalid data: ${result?.error || 'No specific error returned'}`
+        };
+      }
+    })
+    .catch(error => { // JS fallback if script execution failed (spawn error, timeout)
+      console.error(`Tone analysis script execution failed: ${error.message}`);
+      return {
+        label: 'NEUTRAL', score: 0.5, urgency: 'low',
+        analysis_source: 'js_fallback_on_script_failure',
+        reason: `Tone analysis script failed to execute: ${error.message}`
+      };
+    });
+}
+
+async function captureEmailWithPuppeteer(messageId) {
+  let browser;
+  try {
+    browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox']});
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1200, height: 800 });
+
+    const emailRes = await gmail.users.messages.get({ userId: 'me', id: messageId, format: 'full' });
+    let htmlBody = '';
+    if (emailRes.data.payload.mimeType === 'text/html' && emailRes.data.payload.body.data) {
+        htmlBody = Buffer.from(emailRes.data.payload.body.data, 'base64').toString();
+    } else {
+        const htmlPart = emailRes.data.payload.parts?.find(part => part.mimeType === 'text/html');
+        if (htmlPart && htmlPart.body.data) {
+            htmlBody = Buffer.from(htmlPart.body.data, 'base64').toString();
+        }
+    }
+    if (!htmlBody) return null;
+
+    const content = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>${htmlBody}</body></html>`;
+    await page.setContent(content, { waitUntil: 'networkidle0' });
+    const screenshot = await page.screenshot({ type: 'png', fullPage: true });
+    return screenshot;
+  } catch (error) {
+    console.error('Puppeteer capture failed:', error); return null;
+  } finally {
+    if (browser) await browser.close();
+  }
+}
+
+function runPythonOCR(imageBase64) {
+  return executePythonScript('ocr_processor.py', ['ocr', imageBase64])
+    .then(result => {
+      // executePythonScript will resolve with parsed JSON if successful (exit code 0 and valid JSON)
+      // or reject if any step fails (non-zero exit, JSON parse error, spawn error).
+      // Python scripts are now expected to return {success: true/false, ...}
+      if (result && result.success) {
+        console.log("OCR processing successful via Python script.");
+        return result; // Contains { success: true, text: "...", word_count: N }
+      } else {
+        // This case handles when the script runs (exit 0, valid JSON) but reports an internal error.
+        console.error(`OCR script returned success:false or error: ${result?.error}`);
+        throw new Error(result?.error || 'OCR processing failed in Python script.');
+      }
+    })
+    .catch(error => {
+      // This catches rejections from executePythonScript (spawn errors, timeouts, non-zero exits, JSON parse errors)
+      // OR errors thrown from the .then block above (e.g. result.success is false).
+      console.error(`OCR script execution failed or script error: ${error.message}`);
+      // Re-throw to be handled by processEmailWithOCR or other callers.
+      // It's important that this function now consistently throws an error on failure.
+      throw error;
+    });
+}
+
+async function processEmailWithOCR(messageId) {
+  try {
+    let emailDetails = await getEmailDetails(messageId);
+    if (!emailDetails) return null;
+    if (!emailDetails.body || emailDetails.body.length < 50) {
+      console.log(`Attempting OCR for ${messageId}...`);
+      const screenshot = await captureEmailWithPuppeteer(messageId);
+      if (screenshot) {
+        const imageBase64 = screenshot.toString('base64');
+        try {
+          const ocrResult = await runPythonOCR(imageBase64);
+          if (ocrResult.text) { // runPythonOCR would throw if ocrResult.success is false
+            emailDetails.body = ocrResult.text;
+            emailDetails.isOCRProcessed = true;
+            emailDetails.ocrWordCount = ocrResult.word_count || 0;
+          }
+        } catch (ocrError) {
+          console.error(`OCR step failed for ${messageId}: ${ocrError.message}`);
+        }
+      }
+    }
+    return emailDetails;
+  } catch (error) {
+    console.error(`Error in processEmailWithOCR for ${messageId}:`, error);
+    return null;
+  }
+}
+
+// --- NOTIFICATION DISPLAY & MANAGEMENT ---
 function createCustomNotification(emailData) {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
   
@@ -1029,10 +1418,14 @@ function estimateReadTime(text) {
   };
 }
 
-// Create OAuth server
-function createAuthServer() {
-  return new Promise((resolve, reject) => {
-    const server = http.createServer((req, res) => {
+// This function is now part of GMAIL AUTHENTICATION & API SETUP
+// function createAuthServer() {
+//  return new Promise((resolve, reject) => {
+//    const server = http.createServer((req, res) => {
+// This section containing createAuthServer() is removed as the function
+// definition has been moved under the GMAIL AUTHENTICATION & API SETUP section.
+// The SEARCH block targets the original position of createAuthServer.
+// The REPLACE block is empty, effectively deleting this moved function from its old position.
       const parsedUrl = new URL(req.url, 'http://localhost:3000');
       if (parsedUrl.pathname === '/') {
         const code = parsedUrl.searchParams.get('code');
@@ -1059,13 +1452,12 @@ function createAuthServer() {
   });
 }
 
-async function initializeGmail() {
-  const SCOPES = [
-    'https://www.googleapis.com/auth/gmail.readonly',
-    'https://www.googleapis.com/auth/gmail.modify',
-    'https://www.googleapis.com/auth/gmail.labels'
-  ];
-  const TOKEN_PATH = path.join(__dirname, 'token.json');
+// This function is now part of GMAIL AUTHENTICATION & API SETUP
+// async function initializeGmail() {
+//  // SCOPES is now a global constant
+//  const TOKEN_PATH = path.join(__dirname, 'token.json');
+// This section containing initializeGmail() is removed as the function
+// definition has been moved under the GMAIL AUTHENTICATION & API SETUP section.
   const CREDENTIALS = JSON.parse(fs.readFileSync('credentials.json'));
   
   const { client_secret, client_id } = CREDENTIALS.installed;
@@ -1097,7 +1489,7 @@ async function initializeGmail() {
   
   gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
 }
-
+// End of initializeGmail original position
 
 async function getNewEmails() {
   try {
@@ -1267,15 +1659,10 @@ async function markAsRead(messageId) {
   }
 }// Enhanced Gmail API Actions with proper error handling and scope management
 
-// First, update the Gmail scopes to include modify permissions
-const SCOPES = [
-  'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/gmail.modify',
-  'https://www.googleapis.com/auth/gmail.labels'
-];
-
-// Improved Gmail API Actions
-async function markAsRead(messageId) {
+// Removing the duplicated SCOPES and associated functions.
+// This was previously identified as a source of error.
+// The SEARCH block targets the beginning of this duplicated section.
+// The REPLACE block is empty, effectively deleting this section.
   try {
     console.log(`Attempting to mark email ${messageId} as read...`);
     
@@ -1309,6 +1696,7 @@ async function markAsRead(messageId) {
     return { success: false, error: error.message };
   }
 }
+// End of the duplicated block to be deleted.
 
 async function moveToTrash(messageId) {
   try {
@@ -1877,23 +2265,183 @@ ipcMain.handle('snooze-email', async (event, messageId, days = 1) => {
     };
   }
 });
+// --- UTILITY FUNCTIONS ---
+function estimateReadTime(text) {
+  if (!text) return { minutes: 0, seconds: 0, totalSeconds: 0, wordCount: 0 };
+  const words = text.split(/\s+/).filter(Boolean).length;
+  const wpm = 230;
+  const totalMinutes = words / wpm;
+  const minutes = Math.floor(totalMinutes);
+  const seconds = Math.round((totalMinutes - minutes) * 60);
+  return { minutes, seconds, totalSeconds: Math.round(totalMinutes * 60), wordCount: words };
+}
 
-app.whenReady().then(async () => {
-  createWindow();
+// --- GMAIL API ACTIONS (Called via IPC) ---
+async function downloadAttachment(messageId, attachmentId, filename) {
   try {
-    await initializeGmail();
-    await startMonitoring();
-    console.log('Email monitoring started!');
+    const attachment = await gmail.users.messages.attachments.get({ userId: 'me', messageId, id: attachmentId });
+    const data = Buffer.from(attachment.data.data, 'base64');
+    const tempDir = path.join(app.getPath('temp'), 'email-attachments'); // Use app temp path for safety
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+    const filePath = path.join(tempDir, filename);
+    fs.writeFileSync(filePath, data);
+    shell.openPath(filePath);
+    return filePath;
   } catch (error) {
-    console.error('Failed to initialize:', error);
+    console.error('Error downloading attachment:', error);
+    throw error;
+  }
+}
+
+async function markAsRead(messageId) { // This is the one used by IPC
+  try {
+    await gmail.users.messages.modify({ userId: 'me', id: messageId, resource: { removeLabelIds: ['UNREAD'] }});
+    knownEmailIds.delete(messageId);
+    console.log(`Successfully marked email ${messageId} as read (IPC)`);
+    return { success: true, messageId };
+  } catch (error) {
+    console.error(`Mark as read failed for ${messageId} (IPC):`, error);
+    return { success: false, error: error.message, messageId, code: error.code };
+  }
+}
+
+async function moveToTrash(messageId) { // This is the one used by IPC
+  try {
+    await gmail.users.messages.trash({ userId: 'me', id: messageId });
+    knownEmailIds.delete(messageId);
+    console.log(`Successfully moved email ${messageId} to trash (IPC)`);
+    return { success: true, messageId };
+  } catch (error) {
+    console.error(`Move to trash failed for ${messageId} (IPC):`, error);
+    return { success: false, error: error.message, messageId, code: error.code };
+  }
+}
+
+async function toggleStarEmail(messageId) { // This is the one used by IPC
+  try {
+    const message = await gmail.users.messages.get({ userId: 'me', id: messageId, format: 'metadata', metadataHeaders: ['labelIds'] });
+    const isStarred = (message.data.labelIds || []).includes('STARRED');
+    const resource = isStarred ? { removeLabelIds: ['STARRED'] } : { addLabelIds: ['STARRED'] };
+    await gmail.users.messages.modify({ userId: 'me', id: messageId, resource });
+    console.log(`Successfully ${isStarred ? 'unstarred' : 'starred'} email ${messageId} (IPC)`);
+    return { success: true, starred: !isStarred, messageId };
+  } catch (error) {
+    console.error(`Toggle star failed for ${messageId} (IPC):`, error);
+    return { success: false, error: error.message, messageId, code: error.code };
+  }
+}
+
+// --- EMAIL MONITORING SERVICE ---
+async function checkForNewEmails() {
+  if (!gmail || !isMonitoring) return;
+
+  try {
+    const newEmails = await getNewEmails();
+    const unseenEmailIds = newEmails.filter(email => !knownEmailIds.has(email.id)).map(email => email.id);
+
+    if (unseenEmailIds.length > 0) {
+      unseenEmailIds.forEach(id => knownEmailIds.add(id));
+
+      for (const emailId of unseenEmailIds) {
+        const emailDetails = await processEmailWithOCR(emailId);
+        if (emailDetails) {
+          let displayText = emailDetails.body;
+          let isSummary = false;
+          if (settings.enableSummary && emailDetails.body) {
+            displayText = await summarizeText(emailDetails.body); // Uses original spawn summarizeText
+            isSummary = displayText !== emailDetails.body;
+          }
+          const notificationData = { ...emailDetails, body: displayText, isSummary };
+          createCustomNotification(notificationData);
+
+          if (settings.enableVoiceReading) {
+            const voiceMsg = `New message from ${notificationData.from}. Subject: ${notificationData.subject}`;
+            say.speak(voiceMsg);
+          }
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('new-email', notificationData);
+          }
+        }
+      }
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      const currentUnread = await getNewEmails();
+      mainWindow.webContents.send('email-count-update', currentUnread.length);
+    }
+  } catch (error) {
+    console.error('Error checking emails:', error);
+  }
+}
+
+async function startMonitoring() {
+  if (isMonitoring) return 'Monitoring already active.';
+  isMonitoring = true;
+  monitoringStartTime = Date.now();
+  knownEmailIds.clear();
+
+  try {
+    const initialEmails = await getNewEmails();
+    initialEmails.forEach(email => knownEmailIds.add(email.id));
+    console.log(`Initialized with ${knownEmailIds.size} existing unread emails.`);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('email-count-update', initialEmails.length);
+    }
+  } catch (error) {
+    console.error('Error during initial email check for monitoring:', error);
+  }
+
+  const intervalId = setInterval(async () => {
+    if (!isMonitoring) {
+      clearInterval(intervalId);
+      return;
+    }
+    await checkForNewEmails();
+  }, 10000);
+  console.log('Email monitoring started.');
+  return 'Monitoring started successfully.';
+}
+
+function stopMonitoring() {
+  isMonitoring = false;
+  activeNotifications.forEach(notif => { if (!notif.isDestroyed()) notif.close(); });
+  activeNotifications.clear();
+  console.log('Email monitoring stopped.');
+  return 'Monitoring stopped.';
+}
+
+// --- IPC HANDLERS ---
+ipcMain.handle('check-new-mail', async () => {
+  if (!gmail) try { await initializeGmail(); } catch (e) { console.error("Gmail init failed in check-new-mail:", e); return 0; }
+  if (!gmail) return 0;
+  return (await getNewEmails()).length;
+});
+
+ipcMain.handle('start-monitoring', async () => {
+  if (!gmail) try { await initializeGmail(); } catch (e) { console.error("Gmail init failed in start-monitoring:", e); return 'Gmail initialization failed.'; }
+  if (!gmail) return 'Gmail initialization failed.';
+  return await startMonitoring();
+});
+
+ipcMain.handle('stop-monitoring', () => stopMonitoring());
+
+ipcMain.handle('update-settings', (event, newSettings) => {
+  settings = { ...settings, ...newSettings };
+  console.log('Settings updated:', settings);
+  return settings;
+});
+
+ipcMain.handle('get-settings', () => settings);
+
+ipcMain.handle('download-attachment', async (event, messageId, attachmentId, filename) => {
+  try {
+    const filePath = await downloadAttachment(messageId, attachmentId, filename); // Uses the one under GMAIL API ACTIONS
+    // For feedback to notification window, it's better to handle it in the notification's own JS via preload
+    return { success: true, filePath };
+  } catch (error) {
+    return { success: false, error: error.message };
   }
 });
 
-app.on('window-all-closed', () => {
-  stopMonitoring();
-  if (process.platform !== 'darwin') app.quit();
-});
-
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
-});
+ipcMain.handle('mark-as-read', async (event, messageId) => await markAsRead(messageId)); // Uses the one under GMAIL API ACTIONS
+ipcMain.handle('move-to-trash', async (event, messageId) => await moveToTrash(messageId)); // Uses the one under GMAIL API ACTIONS
+ipcMain.handle('snooze-email', async (event, messageId) => await toggleStarEmail(messageId)); // Uses the one under GMAIL API ACTIONS

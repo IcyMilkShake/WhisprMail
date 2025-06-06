@@ -115,13 +115,16 @@ def analyze_text_goemotions_hybrid(text_to_analyze):
     
     text_lower = text_to_analyze.lower()
     reason_parts = []
+    analysis_source = ""
 
     if any(keyword in text_lower for keyword in HIGH_URGENCY_KEYWORDS):
         reason_parts.append("High urgency keyword.")
-        result = {"label": "NEGATIVE", "score": 0.95, "urgency": "high",
+        analysis_source = "keyword_override"
+        result = {"success": True, "label": "NEGATIVE", "score": 0.95, "urgency": "high",
                 "reason": ", ".join(reason_parts), "device_used": device_used,
                 "primary_emotion_detected": "N/A (keyword override)",
-                "all_emotions_detected": []}
+                "all_emotions_detected": [],
+                "analysis_source": analysis_source}
         # Cache the result
         analysis_cache[text_hash] = result
         clean_cache()
@@ -138,19 +141,23 @@ def analyze_text_goemotions_hybrid(text_to_analyze):
 
     if not emotion_classifier:
         reason_parts.append("Emotion model not loaded.")
+        analysis_source = "keyword_only_due_to_model_failure"
         final_urgency_numeric = urgency_from_keyword_numeric if urgency_from_keyword_numeric else 1
         final_label = "NEUTRAL" if final_urgency_numeric < 3 else "NEGATIVE"
         final_score = 0.5 if final_urgency_numeric < 3 else 0.8
-        result = {"label": final_label, "score": final_score,
+        result = {"success": True, "label": final_label, "score": final_score, # Added success: True
                 "urgency": URGENCY_NUM_TO_STR.get(final_urgency_numeric, "low"),
                 "reason": ", ".join(reason_parts), "device_used": device_used,
                 "primary_emotion_detected": "N/A (model not loaded)",
-                "all_emotions_detected": []}
+                "all_emotions_detected": [],
+                "analysis_source": analysis_source}
         # Cache the result
         analysis_cache[text_hash] = result
         clean_cache()
         return result
 
+    # If we reach here, model is available, so it's hybrid unless an error occurs
+    analysis_source = "hybrid_model_and_keyword"
     try:
         raw_model_output = emotion_classifier(text_to_analyze)
         if (raw_model_output and isinstance(raw_model_output, list) and
@@ -166,6 +173,9 @@ def analyze_text_goemotions_hybrid(text_to_analyze):
     except Exception as e:
         print(f"Error during GoEmotions analysis pipeline: {str(e)}", file=sys.stderr)
         reason_parts.append(f"Emotion model analysis error: {str(e)}.")
+        # If model analysis fails, this becomes equivalent to model not being loaded for this run
+        analysis_source = "keyword_only_due_to_model_failure"
+
 
     emotion_urg_num, emotion_label, _ = GOEMOTIONS_MAP.get(primary_emotion_name_from_model, (1, "NEUTRAL", 0.5))
 
@@ -197,13 +207,15 @@ def analyze_text_goemotions_hybrid(text_to_analyze):
         reason_parts.append("Positive high urgency demoted to medium.")
 
     result = {
+        "success": True, # Added success: True
         "label": final_label,
         "score": float(final_score),
         "urgency": URGENCY_NUM_TO_STR.get(final_urgency_numeric, "low"),
         "reason": ", ".join(reason_parts) if reason_parts else "Default evaluation.",
         "primary_emotion_detected": primary_emotion_name_from_model,
         "all_emotions_detected": model_emotions[:3] if model_emotions else [],
-        "device_used": device_used
+        "device_used": device_used,
+        "analysis_source": analysis_source
     }
     
     # Cache the result
@@ -220,22 +232,30 @@ if __name__ == "__main__":
         input_text = sys.argv[1]
 
     if not emotion_classifier:
-        print(json.dumps({
+        error_output = {
+            "success": False, # Added success: False
             "error": f"Emotion model '{EMOTION_MODEL_NAME}' could not be loaded.",
             "label": "NEUTRAL", "score": 0.0, "urgency": "low",
             "reason": "Model load failure", "device_used": device_used,
-            "primary_emotion_detected": "N/A", "all_emotions_detected": []
-        }))
-        sys.exit(1)
+            "primary_emotion_detected": "N/A", "all_emotions_detected": [],
+            "analysis_source": "model_load_failure"
+        }
+        print(json.dumps(error_output))
+        sys.exit(0) # Changed from sys.exit(1)
 
     if not input_text.strip():
-        print(json.dumps({
+        error_output = {
+            "success": False, # Added success: False
             "error": "No input text provided.",
             "label": "NEUTRAL", "score": 0.0, "urgency": "low",
             "reason": "No input text", "device_used": device_used,
-            "primary_emotion_detected": "N/A", "all_emotions_detected": []
-        }))
-        sys.exit(1)
+            "primary_emotion_detected": "N/A", "all_emotions_detected": [],
+            "analysis_source": "no_input"
+        }
+        print(json.dumps(error_output))
+        sys.exit(0) # Changed from sys.exit(1)
 
     analysis_result = analyze_text_goemotions_hybrid(input_text)
+    # analyze_text_goemotions_hybrid now includes "success": True in its valid returns.
     print(json.dumps(analysis_result))
+    sys.exit(0) # Ensure exit with 0
