@@ -24,17 +24,17 @@ def summarize_text_bart(text_to_summarize):
             truncation=True # Ensure text is truncated if too long for the model
         )
         if summary_list and isinstance(summary_list, list) and 'summary_text' in summary_list[0]:
-            return summary_list[0]['summary_text']
+            return {"success": True, "summary_text": summary_list[0]['summary_text']}
         else:
             # More specific error or empty string if summary is malformed
             print("Warning: Summarizer output was not as expected.", file=sys.stderr)
-            return "Error: Could not extract summary from model output."
+            return {"success": False, "error": "Could not extract summary from model output."}
 
     except Exception as e:
         # Log the exception to stderr for debugging on the server/runner side
         print(f"Error during summarization pipeline: {str(e)}", file=sys.stderr)
         # Return an error message that can be captured by main.js
-        return f"Error in Python script (summarizer.py): {str(e)}"
+        return {"success": False, "error": f"Error in Python script (summarizer.py): {str(e)}"}
 
 if __name__ == "__main__":
     input_text = ""
@@ -46,15 +46,11 @@ if __name__ == "__main__":
     # else: input_text remains empty if no piped data and no command-line arguments
 
     if not input_text.strip(): # Check if input_text is empty or whitespace
-        error_output = {"error": "No input text provided to summarizer.py or input was empty."}
+        error_output = {"success": False, "error": "No input text provided to summarizer.py or input was empty."}
         print(json.dumps(error_output))
-        sys.exit(1) # Exit if no input
+        sys.exit(0) # Changed from sys.exit(1)
 
     summary_result = summarize_text_bart(input_text)
-
-    if summary_result.startswith("Error in Python script") or summary_result.startswith("Error: Could not extract summary"):
-        final_output = {"error": summary_result}
-    else:
-        final_output = {"summary_text": summary_result}
-
-    print(json.dumps(final_output))
+    # summarize_text_bart now returns a dictionary with the success flag.
+    print(json.dumps(summary_result))
+    sys.exit(0) # Ensure exit with 0 after printing result
