@@ -1,13 +1,18 @@
 import sys
 import json
-import torch # To check for GPU availability
+import torch
+import hashlib
 from transformers import pipeline
 
 # --- Global Variables & Configuration ---
-EMOTION_MODEL_NAME = "SamLowe/roberta-base-go_emotions" # Changed model
+EMOTION_MODEL_NAME = "SamLowe/roberta-base-go_emotions"
 emotion_classifier = None
-device_used = "cpu" # Default to CPU
-device_index_for_pipeline = -1 # Default for CPU for pipeline
+device_used = "cpu"
+device_index_for_pipeline = -1
+
+# Add a simple cache to prevent duplicate processing
+analysis_cache = {}
+MAX_CACHE_SIZE = 100
 
 HIGH_URGENCY_KEYWORDS = [
     'urgent', 'asap', 'emergency', 'critical', 'immediate', 'deadline today',
@@ -29,29 +34,42 @@ POTENTIALLY_NEGATIVE_KEYWORDS = [
 ]
 
 # --- Model Initialization ---
-try:
-    if torch.cuda.is_available():
-        device_index_for_pipeline = 0
-        device_used = f"cuda:{device_index_for_pipeline}"
-        print(f"GPU (CUDA) is available. Using device: {device_used}", file=sys.stderr)
-    else:
-        device_index_for_pipeline = -1
-        device_used = "cpu"
-        print("GPU (CUDA) not available. Using CPU.", file=sys.stderr)
+def initialize_model():
+    global emotion_classifier, device_used, device_index_for_pipeline
+    
+    if emotion_classifier is not None:
+        return True
+    
+    try:
+        if torch.cuda.is_available():
+            device_index_for_pipeline = 0
+            device_used = f"cuda:{device_index_for_pipeline}"
+            print(f"GPU (CUDA) is available. Using device: {device_used}", file=sys.stderr)
+        else:
+            device_index_for_pipeline = -1
+            device_used = "cpu"
+            print("GPU (CUDA) not available. Using CPU.", file=sys.stderr)
 
-    emotion_classifier = pipeline(
-        "text-classification",
-        model=EMOTION_MODEL_NAME,
-        device=device_index_for_pipeline,
-        top_k=None
-    )
-    if emotion_classifier:
-        emotion_classifier("test initialization of GoEmotions model")
-        print(f"Emotion model '{EMOTION_MODEL_NAME}' loaded successfully on {device_used}.", file=sys.stderr)
-except Exception as e:
-    error_message = f"Failed to load emotion model '{EMOTION_MODEL_NAME}': {str(e)}"
-    print(json.dumps({"error": error_message, "device_used": device_used}), file=sys.stderr)
-    emotion_classifier = None
+        emotion_classifier = pipeline(
+            "text-classification",
+            model=EMOTION_MODEL_NAME,
+            device=device_index_for_pipeline,
+            top_k=None
+        )
+        
+        if emotion_classifier:
+            emotion_classifier("test initialization of GoEmotions model")
+            print(f"Emotion model '{EMOTION_MODEL_NAME}' loaded successfully on {device_used}.", file=sys.stderr)
+            return True
+            
+    except Exception as e:
+        error_message = f"Failed to load emotion model '{EMOTION_MODEL_NAME}': {str(e)}"
+        print(json.dumps({"error": error_message, "device_used": device_used}), file=sys.stderr)
+        emotion_classifier = None
+        return False
+
+# Initialize model on import
+initialize_model()
 
 # --- Emotion Mapping for GoEmotions (Office Context) ---
 GOEMOTIONS_MAP = {
@@ -69,19 +87,45 @@ GOEMOTIONS_MAP = {
     'amusement':    (1, 'POSITIVE', 0.4), 'desire':       (1, 'NEUTRAL', 0.6),
     'realization':  (1, 'NEUTRAL', 0.5), 'neutral':      (1, 'NEUTRAL', 0.9)
 }
-URGENCY_NUM_TO_STR = {3: "high", 2: "medium", 1: "low", 0: "low"} # 0 for safety default
+URGENCY_NUM_TO_STR = {3: "high", 2: "medium", 1: "low", 0: "low"}
+
+# --- Caching Functions ---
+def get_text_hash(text):
+    """Generate a hash for the input text to use as cache key"""
+    return hashlib.md5(text.encode('utf-8')).hexdigest()
+
+def clean_cache():
+    """Clean cache if it gets too large"""
+    global analysis_cache
+    if len(analysis_cache) > MAX_CACHE_SIZE:
+        # Remove oldest half of entries (simple LRU-like behavior)
+        keys_to_remove = list(analysis_cache.keys())[:MAX_CACHE_SIZE // 2]
+        for key in keys_to_remove:
+            del analysis_cache[key]
 
 # --- Core Logic ---
 def analyze_text_goemotions_hybrid(text_to_analyze):
+    # Check cache first
+    text_hash = get_text_hash(text_to_analyze)
+    if text_hash in analysis_cache:
+        print(f"Using cached analysis for text hash: {text_hash[:8]}...", file=sys.stderr)
+        return analysis_cache[text_hash]
+    
+    print(f"Performing new analysis for text hash: {text_hash[:8]}...", file=sys.stderr)
+    
     text_lower = text_to_analyze.lower()
     reason_parts = []
 
     if any(keyword in text_lower for keyword in HIGH_URGENCY_KEYWORDS):
         reason_parts.append("High urgency keyword.")
-        return {"label": "NEGATIVE", "score": 0.95, "urgency": "high",
+        result = {"label": "NEGATIVE", "score": 0.95, "urgency": "high",
                 "reason": ", ".join(reason_parts), "device_used": device_used,
                 "primary_emotion_detected": "N/A (keyword override)",
                 "all_emotions_detected": []}
+        # Cache the result
+        analysis_cache[text_hash] = result
+        clean_cache()
+        return result
 
     urgency_from_keyword_numeric = 0
     if any(keyword in text_lower for keyword in MEDIUM_URGENCY_KEYWORDS):
@@ -97,15 +141,18 @@ def analyze_text_goemotions_hybrid(text_to_analyze):
         final_urgency_numeric = urgency_from_keyword_numeric if urgency_from_keyword_numeric else 1
         final_label = "NEUTRAL" if final_urgency_numeric < 3 else "NEGATIVE"
         final_score = 0.5 if final_urgency_numeric < 3 else 0.8
-        return {"label": final_label, "score": final_score,
+        result = {"label": final_label, "score": final_score,
                 "urgency": URGENCY_NUM_TO_STR.get(final_urgency_numeric, "low"),
                 "reason": ", ".join(reason_parts), "device_used": device_used,
                 "primary_emotion_detected": "N/A (model not loaded)",
                 "all_emotions_detected": []}
+        # Cache the result
+        analysis_cache[text_hash] = result
+        clean_cache()
+        return result
 
     try:
         raw_model_output = emotion_classifier(text_to_analyze)
-        # GoEmotions pipeline with top_k=None returns: [[{'label': '...', 'score': ...}, ...]]
         if (raw_model_output and isinstance(raw_model_output, list) and
             len(raw_model_output) > 0 and isinstance(raw_model_output[0], list) and
             len(raw_model_output[0]) > 0):
@@ -126,10 +173,10 @@ def analyze_text_goemotions_hybrid(text_to_analyze):
     final_label = emotion_label
     final_score = primary_emotion_score_from_model if primary_emotion_score_from_model > 0 else 0.5
 
-    if urgency_from_keyword_numeric == 2 and emotion_urg_num < 2 : # Medium keyword, low-urgency emotion
-        if final_label == "POSITIVE": # Allow positive medium urgency
-             pass # Keep positive label
-        else: # If emotion was neutral or some other non-mapped low-urgency one
+    if urgency_from_keyword_numeric == 2 and emotion_urg_num < 2:
+        if final_label == "POSITIVE":
+             pass
+        else:
              final_label = "NEUTRAL"
         reason_parts.append("Medium keyword influenced, emotion was low urgency.")
 
@@ -142,23 +189,27 @@ def analyze_text_goemotions_hybrid(text_to_analyze):
             final_urgency_numeric = 2
             reason_parts.append("Escalated urgency to medium due to negative keyword.")
 
-    if final_urgency_numeric == 3 and final_label == "NEUTRAL": # High urgency should usually be Negative
+    if final_urgency_numeric == 3 and final_label == "NEUTRAL":
         final_label = "NEGATIVE"
         reason_parts.append("High urgency aligned label to NEGATIVE.")
-    elif final_urgency_numeric == 3 and final_label == "POSITIVE": # Rare case, high urgency positive. Demote urgency.
-        final_urgency_numeric = 2 # e.g. "urgent good news!!" might be medium
+    elif final_urgency_numeric == 3 and final_label == "POSITIVE":
+        final_urgency_numeric = 2
         reason_parts.append("Positive high urgency demoted to medium.")
 
-
-    return {
+    result = {
         "label": final_label,
         "score": float(final_score),
         "urgency": URGENCY_NUM_TO_STR.get(final_urgency_numeric, "low"),
         "reason": ", ".join(reason_parts) if reason_parts else "Default evaluation.",
         "primary_emotion_detected": primary_emotion_name_from_model,
-        "all_emotions_detected": model_emotions[:3] if model_emotions else [], # Top 3 for debugging
+        "all_emotions_detected": model_emotions[:3] if model_emotions else [],
         "device_used": device_used
     }
+    
+    # Cache the result
+    analysis_cache[text_hash] = result
+    clean_cache()
+    return result
 
 # --- Main Execution ---
 if __name__ == "__main__":

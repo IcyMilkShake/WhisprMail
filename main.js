@@ -9,6 +9,15 @@ const { spawn } = require('child_process');
 const puppeteer = require('puppeteer');
 require('dotenv').config();
 
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Promise Rejection at:', promise, 'reason:', reason);
+  // Don't exit the process, just log the error
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  // Handle gracefully instead of crashing
+});
 
 let mainWindow;
 let gmail;
@@ -116,13 +125,6 @@ function createCustomNotification(emailData) {
       }
     }
   });
-  
-  // Auto-close after 15 seconds (increased for longer content)
-  // setTimeout(() => {
-  //   if (!notificationWindow.isDestroyed()) {
-  //     closeNotificationWithAnimation(notificationWindow);
-  //   }
-  // }, 300000);
 
   return notificationWindow;
 }
@@ -179,14 +181,24 @@ function repositionNotifications() {
 // Close notification with fade animation
 function closeNotificationWithAnimation(notificationWindow) {
   if (notificationWindow && !notificationWindow.isDestroyed()) {
-    // Send close animation signal
+    // Don't wait for return value from executeJavaScript
     notificationWindow.webContents.executeJavaScript(`
       document.body.style.animation = 'slideOut 0.3s ease-in forwards';
       setTimeout(() => { window.close(); }, 300);
-    `);
+      // Return a simple value to avoid cloning issues
+      true;
+    `).catch(error => {
+      console.error('Error executing close animation:', error);
+      // Fallback: just close the window
+      if (!notificationWindow.isDestroyed()) {
+        notificationWindow.close();
+      }
+    });
   }
 }
 function createEnhancedNotificationHTML(emailData) {
+  console.log('[MAIN DEBUG] createEnhancedNotificationHTML received emailData.id:', emailData ? emailData.id : 'emailData is null/undefined');
+  console.log('[MAIN DEBUG] full emailData:', JSON.stringify(emailData, null, 2));
   console.log(`Creating notification for email with urgency: ${emailData.urgency}`);
   
   const senderInitial = emailData.from.charAt(0).toUpperCase();
@@ -251,7 +263,7 @@ function createEnhancedNotificationHTML(emailData) {
 
   const quickActionsHTML = `
     <div class="quick-actions">
-      <button class="quick-btn mark-read" data-message-id="${emailData.id}">
+      <button class="quick-btn mark-as-read" data-message-id="${emailData.id}">
         <span class="btn-icon">✓</span>
         <span class="btn-text">Mark Read</span>
       </button>
@@ -605,7 +617,7 @@ function createEnhancedNotificationHTML(emailData) {
           box-shadow: 0 2px 4px rgba(0,0,0,0.12); /* Adjusted hover shadow */
         }
 
-        .quick-btn.mark-read:hover {
+        .quick-btn.mark-as-read:hover { /* Changed from mark-read */
           background: #10b981;
           color: white;
         }
@@ -714,19 +726,19 @@ function createEnhancedNotificationHTML(emailData) {
       </div>
       
       <script>
-        console.log('Notification created with urgency:', '${emailData.urgency}');
+        console.log(\`Notification created with urgency: ${emailData.urgency}\`);
         
         // Handle attachment clicks
-        const attachmentItems = document.querySelectorAll('.attachment-item'); // <-- ADDED
-        console.log('[Notification LOG] Found attachment items:', attachmentItems.length, attachmentItems); // <-- ADDED
-        attachmentItems.forEach(item => { // <-- MODIFIED to use the 'attachmentItems' variable
-          item.addEventListener('click', async (e) => { // Added async
+        const attachmentItems = document.querySelectorAll('.attachment-item');
+        console.log('[Notification LOG] Found attachment items:', attachmentItems.length, attachmentItems);
+        attachmentItems.forEach(item => {
+          item.addEventListener('click', async (e) => {
             e.stopPropagation();
             const messageId = item.dataset.messageId;
             const attachmentId = item.dataset.attachmentId;
             const filename = item.dataset.filename;
 
-            console.log("[Notification LOG] Attachment item clicked. Message ID: '${messageId}', Attachment ID: '${attachmentId}', Filename: '${filename}'");
+            console.log(\`[Notification LOG] Attachment item clicked.\`);
             
             item.style.transform = 'scale(0.95)';
             setTimeout(() => {
@@ -734,13 +746,11 @@ function createEnhancedNotificationHTML(emailData) {
             }, 150);
             
             try {
-              console.log("[Notification LOG] Invoking IPC channel 'download-attachment' for messageId '${messageId}'"); // Added
+              console.log(\`[Notification LOG] Invoking IPC channel 'download-attachment' for messageId\`);
               await window.electronAPI.invoke('download-attachment', messageId, attachmentId, filename);
-              console.log("[Notification LOG] 'download-attachment' invoked for messageId '${messageId}'"); // Added
-              // UI update for download success can be handled here or rely on main process
+              console.log(\`[Notification LOG] 'download-attachment' invoked successfully for messageId \`);
             } catch (error) {
-              console.error('[Notification LOG] Download attachment error:', error);
-              // UI update for download error
+              console.error(\`[Notification LOG] Download attachment error:\`, error);
             }
           });
         });
@@ -750,66 +760,59 @@ function createEnhancedNotificationHTML(emailData) {
         console.log('[Notification LOG] Found quick buttons:', quickButtons.length, quickButtons);
         quickButtons.forEach(btn => {
           btn.addEventListener('click', async (e) => {
-            e.stopPropagation(); // Keep this at the top if it's not impacting the log line
+            e.stopPropagation(); 
             const messageId = btn.dataset.messageId;
-            // Action string derivation is confirmed to be correct from previous steps.
-            // It correctly uses 'mark-read' class to set 'mark-as-read' action.
-            const action = btn.classList.contains('mark-read') ? 'mark-as-read' : 
+            console.log('[NOTIF SCRIPT DEBUG] messageId from button dataset:', messageId);
+            const action = btn.classList.contains('mark-as-read') ? 'mark-as-read' : 
                           btn.classList.contains('trash') ? 'move-to-trash' :
                           btn.classList.contains('star') ? 'snooze-email' : '';
             
-            console.log("[Notification LOG] Quick action button clicked. Action: '${action}', Message ID: '${messageId}'");
+            console.log(\`[Notification LOG] Quick action button clicked. Action: , Message ID: \`);
 
             btn.style.transform = 'scale(0.95)';
             btn.style.opacity = '0.7';
             
             try {
               let result;
-              if (action) { // Check if action is a valid string
-                console.log("[Notification LOG] Invoking IPC channel '${action}' for messageId '${messageId}'"); // Added for more clarity
+              if (action) {
+                console.log(\`[Notification LOG] Invoking IPC channel for messageId\`);
                 result = await window.electronAPI.invoke(action, messageId);
-                console.log("[Notification LOG] Result for action '${action}', messageId '${messageId}':", result); // Added
+                console.log(\`[Notification LOG] Result for action , messageId:\`, result);
               } else {
-                console.error('[Notification LOG] Invalid action for IPC call:', action);
+                console.error(\`[Notification LOG] Invalid action derived from button classes. Classes:\`);
                 throw new Error('Invalid action for IPC call');
               }
 
-              // UI update logic (can be kept or refined based on whether 'result' is now correctly populated)
-              if (result && result.success) { // Check result and result.success
-                if (action !== 'snooze-email') { // 'snooze-email' is the channel for toggleStar
+              if (result && result.success) {
+                if (action !== 'snooze-email') { 
                    btn.innerHTML = '<span class="btn-icon">✓</span><span class="btn-text">Done</span>';
-                } else {
-                  // For star, the main process ipc handler itself sends specific UI updates.
-                  // So this part might not be strictly needed if the main process feedback is sufficient and timely.
-                  // However, we can leave a generic success or rely on main process.
-                  // For now, let's assume the main process handles the specific "Starred/Unstarred" text.
                 }
-                btn.style.background = '#10b981'; // Green for success
+                btn.style.background = '#10b981';
                 btn.style.color = 'white';
-              } else if (result) { // API call was made but failed
-                console.error("[Notification LOG] Action '${action}' failed for messageId '${messageId}'. Result:", result);
+              } else if (result) { 
+                console.error(\`[Notification LOG] Action  failed for messageId. Result:\`, result);
                 btn.innerHTML = '<span class="btn-icon">✗</span><span class="btn-text">Failed</span>';
-                btn.style.background = '#ef4444'; // Red for failure
+                btn.style.background = '#ef4444';
+                btn.style.color = 'white';
+              } else {
+                console.error(\`[Notification LOG] No result or unexpected result structure for action , messageId.\`);
+                btn.innerHTML = '<span class="btn-icon">?</span><span class="btn-text">Unknown</span>';
+                btn.style.background = '#f0ad4e';
                 btn.style.color = 'white';
               }
-              // Ensure any previous setTimeout here is removed or commented.
-              console.log('[Notification LOG] Action processed, closing notification in 10 seconds.');
-              setTimeout(() => closeNotification(), 10000); // Close after 10 seconds
-
+              console.log('[Notification LOG] Action processed, closing notification in 5 mins for debug.');
+              setTimeout(() => closeNotification(), 60000); 
             } catch (error) {
-              console.error("[Notification LOG] Error during action ${action} for ${messageId}:", error);
+              console.error(\`[Notification LOG] Error during action  for messageId:\`, error);
               btn.innerHTML = '<span class="btn-icon">✗</span><span class="btn-text">Error</span>';
               btn.style.background = '#ef4444';
               btn.style.color = 'white';
-              // setTimeout for reverting style on error
               setTimeout(() => {
                 btn.style.transform = '';
                 btn.style.opacity = '';
-                // Revert innerHTML if needed, e.g., back to original text
-                // This part needs to be careful not to cause infinite loops or state issues
               }, 2000);
-              console.log('[Notification LOG] Error occurred, closing notification in 10 seconds.');
-              setTimeout(() => closeNotification(), 10000); // Close after 10 seconds
+              console.log('[Notification LOG] Error occurred during action, closing notification in 5 mins for debug.');
+              setTimeout(() => closeNotification(), 60000);
             }
           });
         });
@@ -1735,108 +1738,146 @@ ipcMain.handle('download-attachment', async (event, messageId, attachmentId, fil
   }
 });
 ipcMain.handle('mark-as-read', async (event, messageId) => {
-  const result = await markAsRead(messageId);
-  
-  // Send result back to notification window for UI feedback
-  const notification = BrowserWindow.fromWebContents(event.sender);
-  if (notification && !notification.isDestroyed()) {
-    if (result.success) {
-      notification.webContents.executeJavaScript(`
-        // Update UI to show success
-        const btn = document.querySelector('.quick-btn.mark-read[data-message-id="${messageId}"]');
-        if (btn) {
-          btn.innerHTML = '<span class="btn-icon">✓</span><span class="btn-text">Read</span>';
-          btn.style.background = '#10b981';
-          btn.style.color = 'white';
-        }
-      `);
-    } else {
-      notification.webContents.executeJavaScript(`
-        const btn = document.querySelector('.quick-btn.mark-read[data-message-id="${messageId}"]');
-        if (btn) {
-          btn.innerHTML = '<span class="btn-icon">✗</span><span class="btn-text">Error</span>';
-          btn.style.background = '#ef4444';
-          btn.style.color = 'white';
-        }
-      `);
+  try {
+    const result = await markAsRead(messageId);
+    
+    // Send result back to notification window for UI feedback
+    const notification = BrowserWindow.fromWebContents(event.sender);
+    if (notification && !notification.isDestroyed()) {
+      if (result.success) {
+        notification.webContents.executeJavaScript(`
+          // Update UI to show success
+          const btn = document.querySelector('.quick-btn.mark-as-read[data-message-id="${messageId}"]');
+          if (btn) {
+            btn.innerHTML = '<span class="btn-icon">✓</span><span class="btn-text">Read</span>';
+            btn.style.background = '#10b981';
+            btn.style.color = 'white';
+          }
+        `).catch(console.error); // Add error handling for executeJavaScript
+      } else {
+        notification.webContents.executeJavaScript(`
+          const btn = document.querySelector('.quick-btn.mark-as-read[data-message-id="${messageId}"]');
+          if (btn) {
+            btn.innerHTML = '<span class="btn-icon">✗</span><span class="btn-text">Error</span>';
+            btn.style.background = '#ef4444';
+            btn.style.color = 'white';
+          }
+        `).catch(console.error);
+      }
     }
+    
+    // Return only serializable data
+    return {
+      success: result.success,
+      error: result.error || null,
+      messageId: messageId
+    };
+  } catch (error) {
+    console.error('Error in mark-as-read handler:', error);
+    return {
+      success: false,
+      error: error.message,
+      messageId: messageId
+    };
   }
-  
-  return result;
 });
-
 ipcMain.handle('move-to-trash', async (event, messageId) => {
-  const result = await moveToTrash(messageId);
-  
-  // Send result back to notification window for UI feedback
-  const notification = BrowserWindow.fromWebContents(event.sender);
-  if (notification && !notification.isDestroyed()) {
-    if (result.success) {
-      notification.webContents.executeJavaScript(`
-        const btn = document.querySelector('.quick-btn.trash[data-message-id="${messageId}"]');
-        if (btn) {
-          btn.innerHTML = '<span class="btn-icon">✓</span><span class="btn-text">Deleted</span>';
-          btn.style.background = '#10b981';
-          btn.style.color = 'white';
-        }
-      `);
-    } else {
-      notification.webContents.executeJavaScript(`
-        const btn = document.querySelector('.quick-btn.trash[data-message-id="${messageId}"]');
-        if (btn) {
-          btn.innerHTML = '<span class="btn-icon">✗</span><span class="btn-text">Error</span>';
-          btn.style.background = '#ef4444';
-          btn.style.color = 'white';
-        }
-      `);
+  try {
+    const result = await moveToTrash(messageId);
+    
+    // Send result back to notification window for UI feedback
+    const notification = BrowserWindow.fromWebContents(event.sender);
+    if (notification && !notification.isDestroyed()) {
+      if (result.success) {
+        notification.webContents.executeJavaScript(`
+          const btn = document.querySelector('.quick-btn.trash[data-message-id="${messageId}"]');
+          if (btn) {
+            btn.innerHTML = '<span class="btn-icon">✓</span><span class="btn-text">Deleted</span>';
+            btn.style.background = '#10b981';
+            btn.style.color = 'white';
+          }
+        `).catch(console.error);
+      } else {
+        notification.webContents.executeJavaScript(`
+          const btn = document.querySelector('.quick-btn.trash[data-message-id="${messageId}"]');
+          if (btn) {
+            btn.innerHTML = '<span class="btn-icon">✗</span><span class="btn-text">Error</span>';
+            btn.style.background = '#ef4444';
+            btn.style.color = 'white';
+          }
+        `).catch(console.error);
+      }
     }
+    
+    // Return only serializable data
+    return {
+      success: result.success,
+      error: result.error || null,
+      messageId: messageId
+    };
+  } catch (error) {
+    console.error('Error in move-to-trash handler:', error);
+    return {
+      success: false,
+      error: error.message,
+      messageId: messageId
+    };
   }
-  
-  return result;
 });
 
 ipcMain.handle('snooze-email', async (event, messageId, days = 1) => {
-  // Although the function is renamed, we keep the IPC handler name for now
-  // to avoid breaking changes in renderer.js or preload.js
-  const result = await toggleStarEmail(messageId); // Call the renamed function
+  try {
+    const result = await toggleStarEmail(messageId);
 
-  // Send result back to notification window for UI feedback
-  // This part might need adjustment based on how starring/unstarring should be reflected in the UI
-  const notification = BrowserWindow.fromWebContents(event.sender);
-  if (notification && !notification.isDestroyed()) {
-    // Use 'quick-btn star' to select the button
-    const buttonSelector = `.quick-btn.star[data-message-id="${messageId}"]`;
+    // Send result back to notification window for UI feedback
+    const notification = BrowserWindow.fromWebContents(event.sender);
+    if (notification && !notification.isDestroyed()) {
+      const buttonSelector = `.quick-btn.star[data-message-id="${messageId}"]`;
 
-    if (result.success) {
-      const starIcon = '⭐'; // Using a consistent star icon
-      const statusText = result.starred ? 'Starred' : 'Unstarred';
-      const backgroundColor = result.starred ? '#f59e0b' : '#7f8c8d'; // Yellow for starred, grey for unstarred
+      if (result.success) {
+        const starIcon = '⭐';
+        const statusText = result.starred ? 'Starred' : 'Unstarred';
+        const backgroundColor = result.starred ? '#f59e0b' : '#7f8c8d';
 
-      notification.webContents.executeJavaScript(`
-        const btn = document.querySelector('${buttonSelector}');
-        if (btn) {
-          btn.innerHTML = '<span class="btn-icon">${starIcon}</span><span class="btn-text">${statusText}</span>';
-          btn.style.background = '${backgroundColor}';
-          btn.style.color = 'white';
-        }
-      `);
-    } else {
-      // On error, revert to "Star" text and a default/error appearance
-      notification.webContents.executeJavaScript(`
-        const btn = document.querySelector('${buttonSelector}');
-        if (btn) {
-          btn.innerHTML = '<span class="btn-icon">⭐</span><span class="btn-text">Star</span>'; // Revert to original "Star"
-          btn.style.background = '#ef4444'; // Error color
-          btn.style.color = 'white';
-          // Optionally, add a title or other indication of error
-          btn.title = 'Error: ${result.error || 'Could not star email'}';
-        }
-      `);
+        notification.webContents.executeJavaScript(`
+          const btn = document.querySelector('${buttonSelector}');
+          if (btn) {
+            btn.innerHTML = '<span class="btn-icon">${starIcon}</span><span class="btn-text">${statusText}</span>';
+            btn.style.background = '${backgroundColor}';
+            btn.style.color = 'white';
+          }
+        `).catch(console.error);
+      } else {
+        notification.webContents.executeJavaScript(`
+          const btn = document.querySelector('${buttonSelector}');
+          if (btn) {
+            btn.innerHTML = '<span class="btn-icon">⭐</span><span class="btn-text">Star</span>';
+            btn.style.background = '#ef4444';
+            btn.style.color = 'white';
+            btn.title = 'Error: ${result.error || 'Could not star email'}';
+          }
+        `).catch(console.error);
+      }
     }
-  }
 
-  return result;
+    // Return only serializable data
+    return {
+      success: result.success,
+      starred: result.starred || false,
+      error: result.error || null,
+      messageId: messageId
+    };
+  } catch (error) {
+    console.error('Error in snooze-email handler:', error);
+    return {
+      success: false,
+      starred: false,
+      error: error.message,
+      messageId: messageId
+    };
+  }
 });
+
 app.whenReady().then(async () => {
   createWindow();
   try {
