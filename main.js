@@ -660,6 +660,10 @@ function createEnhancedNotificationHTML(emailData) {
         <span class="btn-icon">🗑️</span>
         <span class="btn-text">Delete</span>
       </button>
+      <button class="quick-btn untrash" data-message-id="${emailData.id}">
+        <span class="btn-icon">🔄</span>
+        <span class="btn-text">Undelete</span>
+      </button>
       <button class="quick-btn star" data-message-id="${emailData.id}">
         <span class="btn-icon">⭐</span>
         <span class="btn-text">Star</span>
@@ -1016,6 +1020,11 @@ function createEnhancedNotificationHTML(emailData) {
           color: white;
         }
 
+        .quick-btn.untrash:hover {
+          background: #3498db; /* Blue */
+          color: white;
+        }
+
         .quick-btn.star:hover {
           background: #f59e0b; /* Keep yellow for star, or choose another color */
           color: white;
@@ -1152,11 +1161,12 @@ function createEnhancedNotificationHTML(emailData) {
             e.stopPropagation(); 
             const messageId = btn.dataset.messageId;
             console.log('[NOTIF SCRIPT DEBUG] messageId from button dataset:', messageId);
-            const action = btn.classList.contains('mark-as-read') ? 'mark-as-read' : 
+            const action = btn.classList.contains('mark-as-read') ? 'mark-as-read' :
                           btn.classList.contains('trash') ? 'move-to-trash' :
+                          btn.classList.contains('untrash') ? 'untrash-email' :
                           btn.classList.contains('star') ? 'snooze-email' : '';
             
-            console.log(\`[Notification LOG] Quick action button clicked. Action: , Message ID: \`);
+            console.log(\`[Notification LOG] Quick action button clicked. Action: \${action}, Message ID: \${messageId}\`);
 
             btn.style.transform = 'scale(0.95)';
             btn.style.opacity = '0.7';
@@ -1173,7 +1183,9 @@ function createEnhancedNotificationHTML(emailData) {
               }
 
               if (result && result.success) {
-                if (action !== 'snooze-email') { 
+                if (action === 'untrash-email') {
+                  btn.innerHTML = '<span class="btn-icon">✓</span><span class="btn-text">Restored</span>';
+                } else if (action !== 'snooze-email') { 
                    btn.innerHTML = '<span class="btn-icon">✓</span><span class="btn-text">Done</span>';
                 }
                 btn.style.background = '#10b981';
@@ -1229,854 +1241,32 @@ function createEnhancedNotificationHTML(emailData) {
 }
 
 
-async function summarizeText(text) {
-  console.log("Summarizing text via Python script...");
-  if (!text || text.length < 100) {
-    console.log("Text too short or empty, returning original.");
-    return text;
-  }
+// NOTE: Duplicated versions of summarizeText, detectEmotionalTone, fallbackUrgencyDetection,
+// and estimateReadTime have been removed.
+// Their definitions are consolidated elsewhere in the file (using executePythonScript or under UTILITY FUNCTIONS).
 
-  // Ensure settings.huggingfaceToken is available for the Python script's environment
-  // The Python script for summarizer.py (BART) itself doesn't directly use the token
-  // but it's good practice if other Python scripts might.
-  // For summarizer.py, it relies on transformers library which might have its own auth.
-
-  const pythonPath = path.join(__dirname, 'python_executor', 'python.exe');
-  const scriptPath = path.join(__dirname, 'summarizer.py');
-
-  return new Promise((resolve, reject) => {
-    const pythonProcess = spawn(pythonPath, [scriptPath]);
-
-    let stdoutData = '';
-    let stderrData = '';
-
-    pythonProcess.stdout.on('data', (data) => {
-      stdoutData += data.toString();
-    });
-
-    pythonProcess.stderr.on('data', (data) => {
-      stderrData += data.toString();
-    });
-
-    pythonProcess.on('close', (code) => {
-      if (stderrData) {
-        console.error(`summarizer.py stderr: ${stderrData}`);
-      }
-      if (code === 0) {
-        try {
-          const result = JSON.parse(stdoutData);
-          if (result.summary_text) {
-            console.log("Summarization successful via Python script.");
-            resolve(result.summary_text);
-          } else if (result.error) {
-            console.error(`Error from summarizer.py: ${result.error}`);
-            resolve(text); // Return original text on script error
-          } else {
-            console.error('Invalid JSON response from summarizer.py');
-            resolve(text); // Return original text
-          }
-        } catch (e) {
-          console.error(`Failed to parse JSON from summarizer.py: ${e}`);
-          console.error(`Raw stdout from summarizer.py: ${stdoutData}`);
-          resolve(text); // Return original text
-        }
-      } else {
-        console.error(`summarizer.py exited with code ${code}`);
-        resolve(text); // Return original text on non-zero exit code
-      }
-    });
-
-    pythonProcess.on('error', (error) => {
-      console.error(`Failed to start summarizer.py: ${error}`);
-      resolve(text); // Return original text if process fails to start
-    });
-
-    // Write the text to the Python script's stdin
-    pythonProcess.stdin.write(text);
-    pythonProcess.stdin.end();
-  });
-}
-
-async function detectEmotionalTone(text) {
-  console.log("Analyzing email tone via Python script for:", text.substring(0, 100) + "...");
-
-  if (!text || text.length < 10) {
-    console.log("Text too short or empty, returning default low urgency.");
-    return { label: 'NEUTRAL', score: 0.5, urgency: 'low' };
-  }
-
-  const pythonPath = path.join(__dirname, 'python_executor', 'python.exe');
-  const scriptPath = path.join(__dirname, 'tone_analyzer.py');
-
-  // Pass HUGGINGFACE_TOKEN via environment variables for the spawned process
-  // const env = { ...process.env, HUGGINGFACE_TOKEN: settings.huggingfaceToken }; // No longer needed for local model
-
-  return new Promise((resolve) => {
-    // const pythonProcess = spawn(pythonPath, [scriptPath], { env }); // Old call with env
-    const pythonProcess = spawn(pythonPath, [scriptPath]); // New call, inherits process.env
-
-    let stdoutData = '';
-    let stderrData = '';
-
-    pythonProcess.stdout.on('data', (data) => {
-      stdoutData += data.toString();
-    });
-
-    pythonProcess.stderr.on('data', (data) => {
-      stderrData += data.toString();
-    });
-
-    pythonProcess.on('close', (code) => {
-      if (stderrData) {
-        console.error(`tone_analyzer.py stderr: ${stderrData}`);
-      }
-      if (code === 0) {
-        try {
-          const result = JSON.parse(stdoutData);
-          // Check if the result is an error from the script
-          if (result.error) {
-             console.error(`Error from tone_analyzer.py: ${result.error}`);
-             resolve(fallbackUrgencyDetection(text)); // Fallback
-          } else if (result.label && result.urgency) { // Check for expected fields
-            console.log("Tone analysis successful via Python script:", result);
-            resolve({
-                label: result.label,
-                score: parseFloat(result.score) || 0.5,
-                urgency: result.urgency,
-                fallback: result.fallback || false // Check if fallback was used in Python
-            });
-          } else {
-            console.error('Invalid JSON response structure from tone_analyzer.py:', stdoutData);
-            resolve(fallbackUrgencyDetection(text)); // Fallback
-          }
-        } catch (e) {
-          console.error(`Failed to parse JSON from tone_analyzer.py: ${e}`);
-          console.error(`Raw stdout from tone_analyzer.py: ${stdoutData}`);
-          resolve(fallbackUrgencyDetection(text)); // Fallback
-        }
-      } else {
-        console.error(`tone_analyzer.py exited with code ${code}`);
-        resolve(fallbackUrgencyDetection(text)); // Fallback
-      }
-    });
-
-    pythonProcess.on('error', (error) => {
-      console.error(`Failed to start tone_analyzer.py: ${error}`);
-      resolve(fallbackUrgencyDetection(text)); // Fallback
-    });
-
-    pythonProcess.stdin.write(text);
-    pythonProcess.stdin.end();
-  });
-}
-function fallbackUrgencyDetection(text) {
-  const textLower = text.toLowerCase();
-  
-  // High urgency keywords
-  const highUrgencyKeywords = [
-    'urgent', 'asap', 'emergency', 'critical', 'immediate', 'deadline today',
-    'right now', 'immediately', 'crisis', 'breaking', 'alert', 'warning',
-    'action required', 'time sensitive', 'expires today', 'final notice'
-  ];
-  
-  // Medium urgency keywords  
-  const mediumUrgencyKeywords = [
-    'important', 'deadline', 'follow up', 'response needed', 'meeting',
-    'review required', 'approval needed', 'expires', 'reminder', 'overdue',
-    'this week', 'tomorrow', 'soon', 'priority', 'attention'
-  ];
-  
-  // Check for high urgency
-  if (highUrgencyKeywords.some(keyword => textLower.includes(keyword))) {
-    return { label: 'NEGATIVE', score: 0.8, urgency: 'high', fallback: true };
-  }
-  
-  // Check for medium urgency
-  if (mediumUrgencyKeywords.some(keyword => textLower.includes(keyword))) {
-    return { label: 'NEUTRAL', score: 0.6, urgency: 'medium', fallback: true };
-  }
-  
-  // Default to low urgency
-  return { label: 'NEUTRAL', score: 0.5, urgency: 'low', fallback: true };
-}
-
-
-function estimateReadTime(text) {
-  if (!text) return { minutes: 0, seconds: 0, totalSeconds: 0 };
-  
-  const words = text.split(/\s+/).length;
-  const wpm = 230; // words per minute
-  const totalMinutes = words / wpm;
-  const minutes = Math.floor(totalMinutes);
-  const seconds = Math.round((totalMinutes - minutes) * 60);
-  
-  return {
-    minutes,
-    seconds,
-    totalSeconds: Math.round(totalMinutes * 60),
-    wordCount: words
-  };
-}
-
-// This function is now part of GMAIL AUTHENTICATION & API SETUP
-// function createAuthServer() {
-//  return new Promise((resolve, reject) => {
-//    const server = http.createServer((req, res) => {
-// This section containing createAuthServer() is removed as the function
-// definition has been moved under the GMAIL AUTHENTICATION & API SETUP section.
-// The SEARCH block targets the original position of createAuthServer.
-// The REPLACE block is empty, effectively deleting this moved function from its old position.
-      const parsedUrl = new URL(req.url, 'http://localhost:3000');
-      if (parsedUrl.pathname === '/') {
-        const code = parsedUrl.searchParams.get('code');
-        const error = parsedUrl.searchParams.get('error');
-        
-        if (error) {
-          res.writeHead(400, { 'Content-Type': 'text/html' });
-          res.end('<h1>Error</h1><p>Close this window.</p>');
-          server.close();
-          reject(new Error(error));
-          return;
-        }
-        
-        if (code) {
-          res.writeHead(200, { 'Content-Type': 'text/html' });
-          res.end('<h1>Success!</h1><p>Close this window.</p>');
-          server.close();
-          resolve(code);
-          return;
-        }
-      }
-    });
-    server.listen(3000, 'localhost');
-  });
-}
-
-// This function is now part of GMAIL AUTHENTICATION & API SETUP
-// async function initializeGmail() {
-//  // SCOPES is now a global constant
-//  const TOKEN_PATH = path.join(__dirname, 'token.json');
-// This section containing initializeGmail() is removed as the function
-// definition has been moved under the GMAIL AUTHENTICATION & API SETUP section.
-  const CREDENTIALS = JSON.parse(fs.readFileSync('credentials.json'));
-  
-  const { client_secret, client_id } = CREDENTIALS.installed;
-  oAuth2Client = new google.auth.OAuth2(client_id, client_secret, 'http://localhost:3000');
-  
-  if (fs.existsSync(TOKEN_PATH)) {
-    const token = JSON.parse(fs.readFileSync(TOKEN_PATH));
-    oAuth2Client.setCredentials(token);
-    try {
-      await oAuth2Client.getAccessToken();
-    } catch (error) {
-      console.log('Token expired, re-authenticating...');
-      fs.unlinkSync(TOKEN_PATH);
-      return await initializeGmail();
-    }
-  } else {
-    const authUrl = oAuth2Client.generateAuthUrl({
-      access_type: 'offline',
-      scope: SCOPES, // Updated scopes
-      prompt: 'consent'
-    });
-    
-    await open(authUrl);
-    const code = await createAuthServer();
-    const { tokens } = await oAuth2Client.getToken(code);
-    oAuth2Client.setCredentials(tokens);
-    fs.writeFileSync(TOKEN_PATH, JSON.stringify(tokens));
-  }
-  
-  gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
-}
-// End of initializeGmail original position
-
-async function getNewEmails() {
-  try {
-    const query = monitoringStartTime 
-      ? `is:unread after:${Math.floor(monitoringStartTime / 1000)}`
-      : 'is:unread';
-    
-    const res = await gmail.users.messages.list({
-      userId: 'me',
-      q: query,
-      maxResults: 50
-    });
-    return res.data.messages || [];
-  } catch (error) {
-    return [];
-  }
-}
-
-function extractSenderName(fromHeader) {
-  try {
-    const match = fromHeader.match(/^(.*?)\s*<(.+?)>$/) || [null, null, fromHeader];
-    if (match[1] && match[1].trim()) {
-      return match[1].replace(/['"]/g, '').trim();
-    } else {
-      const email = match[2] || fromHeader;
-      return email.split('@')[0];
-    }
-  } catch (error) {
-    return 'Unknown sender';
-  }
-}
-
-// Extract text and attachments
-function processEmailContent(payload) {
-  let textContent = '';
-  let attachments = [];
-  
-  function extractContent(part) {
-    if (part.parts) {
-      part.parts.forEach(extractContent);
-    } else if (part.mimeType === 'text/plain' && part.body?.data) {
-      textContent += Buffer.from(part.body.data, 'base64').toString('utf-8');
-    } else if (part.filename && part.body?.attachmentId) {
-      attachments.push({
-        filename: part.filename,
-        mimeType: part.mimeType,
-        attachmentId: part.body.attachmentId,
-        size: part.body.size
-      });
-    }
-  }
-  
-  if (payload.body?.data) {
-    textContent = Buffer.from(payload.body.data, 'base64').toString('utf-8');
-  } else {
-    extractContent(payload);
-  }
-  
-  textContent = textContent.replace(/\[image:.*?\]/gi, '').trim();
-  
-  return { textContent, attachments };
-}
-async function getEmailDetails(messageId) {
-  try {
-    const res = await gmail.users.messages.get({
-      userId: 'me',
-      id: messageId,
-      format: 'full',
-    });
-    
-    const headers = res.data.payload.headers;
-    const from = headers.find(h => h.name === 'From')?.value || 'Unknown';
-    const subject = headers.find(h => h.name === 'Subject')?.value || 'No Subject';
-    
-    const { textContent, attachments } = processEmailContent(res.data.payload);
-    
-    // Combine subject and body for better tone analysis
-    const contentForAnalysis = `${subject}\n\n${textContent}`.trim();
-    
-    console.log(`Processing email: "${subject}" from ${from}`);
-    
-    // Add tone detection and read time
-    const tone = await detectEmotionalTone(contentForAnalysis);
-    const readTime = estimateReadTime(textContent);
-    
-    const emailData = { 
-      from, 
-      subject, 
-      body: textContent, 
-      attachments, 
-      id: messageId,
-      tone,
-      readTime,
-      urgency: tone.urgency  // Make sure urgency is set
-    };
-    
-    console.log(`Email processed - Urgency: ${emailData.urgency}, Tone: ${tone.label}`);
-    
-    return emailData;
-  } catch (error) {
-    console.error('Error getting email details:', error);
-    return null;
-  }
-}
-
-// Download attachment function
-async function downloadAttachment(messageId, attachmentId, filename) {
-  try {
-    const attachment = await gmail.users.messages.attachments.get({
-      userId: 'me',
-      messageId: messageId,
-      id: attachmentId
-    });
-    
-    const data = Buffer.from(attachment.data.data, 'base64');
-    const tempDir = path.join(__dirname, 'temp');
-    
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir);
-    }
-    
-    const filePath = path.join(tempDir, filename);
-    fs.writeFileSync(filePath, data);
-    
-    shell.openPath(filePath);
-    
-    return filePath;
-  } catch (error) {
-    console.error('Error downloading attachment:', error);
-    throw error;
-  }
-}
+// NOTE: The duplicated functions createAuthServer, initializeGmail, getNewEmails,
+// extractSenderName, processEmailContent, getEmailDetails, and the first downloadAttachment
+// have been removed. Their definitions are consolidated elsewhere in the file.
 
 // Gmail API Actions
-async function markAsRead(messageId) {
-  try {
-    console.log(`Attempting to mark email ${messageId} as read...`);
-    
-    // Remove the UNREAD label
-    const result = await gmail.users.messages.modify({
-      userId: 'me',
-      id: messageId,
-      resource: {
-        removeLabelIds: ['UNREAD']
-      }
-    });
-    
-    console.log(`Successfully marked email ${messageId} as read`);
-    
-    // Update local tracking
-    knownEmailIds.delete(messageId);
-    
-    return { success: true, result };
-  } catch (error) {
-    console.error('Mark as read failed:', error);
-    
-    // Handle specific error cases
-    if (error.code === 404) {
-      return { success: false, error: 'Email not found' };
-    } else if (error.code === 403) {
-      return { success: false, error: 'Permission denied - please re-authenticate' };
-    } else if (error.code === 401) {
-      return { success: false, error: 'Authentication required' };
-    }
-    
-    return { success: false, error: error.message };
-  }
-}// Enhanced Gmail API Actions with proper error handling and scope management
+// Enhanced Gmail API Actions with proper error handling and scope management
 
 // Removing the duplicated SCOPES and associated functions.
 // This was previously identified as a source of error.
 // The SEARCH block targets the beginning of this duplicated section.
 // The REPLACE block is empty, effectively deleting this section.
-  try {
-    console.log(`Attempting to mark email ${messageId} as read...`);
-    
-    // Remove the UNREAD label
-    const result = await gmail.users.messages.modify({
-      userId: 'me',
-      id: messageId,
-      resource: {
-        removeLabelIds: ['UNREAD']
-      }
-    });
-    
-    console.log(`Successfully marked email ${messageId} as read`);
-    
-    // Update local tracking
-    knownEmailIds.delete(messageId);
-    
-    return { success: true, result };
-  } catch (error) {
-    console.error('Mark as read failed:', error);
-    
-    // Handle specific error cases
-    if (error.code === 404) {
-      return { success: false, error: 'Email not found' };
-    } else if (error.code === 403) {
-      return { success: false, error: 'Permission denied - please re-authenticate' };
-    } else if (error.code === 401) {
-      return { success: false, error: 'Authentication required' };
-    }
-    
-    return { success: false, error: error.message };
-  }
-}
 // End of the duplicated block to be deleted.
 
-async function moveToTrash(messageId) {
-  try {
-    console.log(`Attempting to move email ${messageId} to trash...`);
-    
-    const result = await gmail.users.messages.trash({
-      userId: 'me',
-      id: messageId
-    });
-    
-    console.log(`Successfully moved email ${messageId} to trash`);
-    
-    // Update local tracking
-    knownEmailIds.delete(messageId);
-    
-    return { success: true, result };
-  } catch (error) {
-    console.error('Move to trash failed:', error);
-    
-    // Handle specific error cases
-    if (error.code === 404) {
-      return { success: false, error: 'Email not found' };
-    } else if (error.code === 403) {
-      return { success: false, error: 'Permission denied - please re-authenticate' };
-    } else if (error.code === 401) {
-      return { success: false, error: 'Authentication required' };
-    }
-    
-    return { success: false, error: error.message };
-  }
-}
+// NOTE: The older versions of markAsRead, moveToTrash, and toggleStarEmail that were here
+// have been removed as per the refactoring task.
+// The versions used by IPC handlers are located further down under
+// `// --- GMAIL API ACTIONS (Called via IPC) ---`
 
-// Toggle Star functionality
-async function toggleStarEmail(messageId) {
-  try {
-    console.log(`Attempting to toggle star for email ${messageId}...`);
+// NOTE: Duplicated versions of captureEmailWithPuppeteer, runPythonOCR, processEmailWithOCR,
+// checkForNewEmails, startMonitoring, and stopMonitoring have been removed.
+// Their definitions are consolidated elsewhere in the file.
 
-    // Get current labels
-    const message = await gmail.users.messages.get({
-      userId: 'me',
-      id: messageId,
-      format: 'metadata',
-      metadataHeaders: ['labelIds'],
-    });
-
-    const labels = message.data.labelIds || [];
-    const isStarred = labels.includes('STARRED');
-
-    if (isStarred) {
-      // Remove STARRED label
-      await gmail.users.messages.modify({
-        userId: 'me',
-        id: messageId,
-        resource: {
-          removeLabelIds: ['STARRED'],
-        },
-      });
-      console.log(`Successfully unstarred email ${messageId}`);
-      return { success: true, starred: false };
-    } else {
-      // Add STARRED label
-      await gmail.users.messages.modify({
-        userId: 'me',
-        id: messageId,
-        resource: {
-          addLabelIds: ['STARRED'],
-        },
-      });
-      console.log(`Successfully starred email ${messageId}`);
-      return { success: true, starred: true };
-    }
-  } catch (error) {
-    console.error('Toggle star failed:', error);
-
-    if (error.code === 404) {
-      return { success: false, error: 'Email not found' };
-    } else if (error.code === 403) {
-      return { success: false, error: 'Permission denied - please re-authenticate' };
-    } else if (error.code === 401) {
-      return { success: false, error: 'Authentication required' };
-    }
-
-    return { success: false, error: error.message };
-  }
-}
-
-async function captureEmailWithPuppeteer(messageId) {
-  let browser;
-  try {
-    browser = await puppeteer.launch({ 
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1200, height: 800 });
-    
-    // Get email HTML content
-    const emailData = await getEmailDetails(messageId);
-    if (!emailData || !emailData.body) return null;
-    
-    // Create a simple HTML page with email content
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <style>
-          body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; }
-          img { max-width: 100%; height: auto; }
-        </style>
-      </head>
-      <body>${emailData.body}</body>
-      </html>
-    `;
-    
-    await page.setContent(htmlContent);
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    
-    const screenshot = await page.screenshot({ 
-      type: 'png',
-      fullPage: true 
-    });
-    
-    return screenshot;
-  } catch (error) {
-    console.error('Puppeteer capture failed:', error);
-    return null;
-  } finally {
-    if (browser) await browser.close();
-  }
-}
-
-function runPythonOCR(imageBase64) {
-  return new Promise((resolve, reject) => {
-    const pythonPath = path.join(__dirname, 'python_executor', 'python.exe');
-    const scriptPath = path.join(__dirname, 'ocr_processor.py');
-    
-    const pythonProcess = spawn(pythonPath, [scriptPath, 'ocr', imageBase64]);
-    
-    let result = '';
-    let error = '';
-    
-    pythonProcess.stdout.on('data', (data) => {
-      result += data.toString();
-    });
-    
-    pythonProcess.stderr.on('data', (data) => {
-      error += data.toString();
-    });
-    
-    pythonProcess.on('close', (code) => {
-      if (code === 0) {
-        try {
-          const parsed = JSON.parse(result);
-          resolve(parsed);
-        } catch (e) {
-          reject(new Error('Failed to parse OCR result'));
-        }
-      } else {
-        reject(new Error(`Python process failed: ${error}`));
-      }
-    });
-  });
-}
-
-async function processEmailWithOCR(messageId) {
-  try {
-    // First try regular email content extraction
-    let emailDetails = await getEmailDetails(messageId);
-    if (!emailDetails) return null;
-    
-    // If body is empty or very short, try OCR
-    if (!emailDetails.body || emailDetails.body.length < 50) {
-      console.log('Email content too short, attempting OCR...');
-      
-      const screenshot = await captureEmailWithPuppeteer(messageId);
-      if (screenshot) {
-        const imageBase64 = screenshot.toString('base64');
-        const ocrResult = await runPythonOCR(imageBase64);
-        
-        if (ocrResult.success && ocrResult.text) {
-          emailDetails.body = ocrResult.text;
-          emailDetails.isOCRProcessed = true;
-          emailDetails.ocrWordCount = ocrResult.word_count;
-        }
-      }
-    }
-    
-    return emailDetails;
-  } catch (error) {
-    console.error('OCR processing failed:', error);
-    return await getEmailDetails(messageId); // Fallback to regular processing
-  }
-}
-async function checkForNewEmails() {
-  if (!gmail || !monitoringStartTime) return;
-  
-  try {
-    const newEmails = await getNewEmails();
-    const currentEmailIds = new Set(newEmails.map(email => email.id));
-    const unseenEmailIds = [...currentEmailIds].filter(id => !knownEmailIds.has(id));
-    
-    if (unseenEmailIds.length > 0) {
-      // Add the IDs to knownEmailIds IMMEDIATELY to prevent duplicates
-      knownEmailIds = new Set([...knownEmailIds, ...unseenEmailIds]);
-      
-for (const emailId of unseenEmailIds) {
-  // Use OCR-enhanced processing instead of basic getEmailDetails
-  const emailDetails = await processEmailWithOCR(emailId);
-  
-  if (emailDetails) {
-    const senderName = extractSenderName(emailDetails.from);
-    
-    // Get summary if enabled
-    let displayText = emailDetails.body;
-    let isSummary = false;
-    
-    if (settings.enableSummary && emailDetails.body) {
-      try {
-        displayText = await summarizeText(emailDetails.body);
-        isSummary = true;
-      } catch (error) {
-        console.error('Summarization failed, using original text:', error);
-        displayText = emailDetails.body;
-        isSummary = false;
-      }
-    }
-    
-        // Create emailData with OCR info
-        const emailData = {
-          from: senderName,
-          subject: emailDetails.subject,
-          body: displayText,
-          attachments: emailDetails.attachments,
-          isSummary: isSummary,
-          isOCRProcessed: emailDetails.isOCRProcessed || false,
-          hasAttachments: emailDetails.attachments && emailDetails.attachments.length > 0,
-          id: emailDetails.id,
-          tone: emailDetails.tone,
-          readTime: emailDetails.readTime,
-          urgency: emailDetails.urgency
-        };
-          
-          // Create attachment info for voice
-          let attachmentInfo = '';
-          if (emailDetails.attachments && emailDetails.attachments.length > 0) {
-            attachmentInfo = ` with ${emailDetails.attachments.length} attachment${emailDetails.attachments.length > 1 ? 's' : ''}`;
-          }
-          
-          // Voice notification
-          if (settings.enableVoiceReading) {
-            const voiceMessage = `New message from ${senderName}${attachmentInfo}`;
-            
-            // Speak notification first, then read content
-            say.speak(voiceMessage, null, null, (err) => {
-              if (!err && displayText) {
-                // Clean up text for better voice reading
-                let voiceContent = displayText
-                  .replace(/\n+/g, '. ') // Replace line breaks with periods
-                  .replace(/\s+/g, ' ') // Clean multiple spaces
-                  .replace(/[^\w\s.,!?-]/g, '') // Remove special characters
-                  .trim();
-                
-                // Split long content into chunks to avoid cutoff
-                const maxChunkLength = 500; // Adjust based on your needs
-                
-                function speakChunks(text, chunkIndex = 0) {
-                  if (chunkIndex * maxChunkLength >= text.length) return;
-                  
-                  const start = chunkIndex * maxChunkLength;
-                  const end = Math.min(start + maxChunkLength, text.length);
-                  let chunk = text.substring(start, end);
-                  
-                  // Don't cut words in half
-                  if (end < text.length) {
-                    const lastSpace = chunk.lastIndexOf(' ');
-                    if (lastSpace > maxChunkLength * 0.8) { // Only adjust if we're not cutting too much
-                      chunk = chunk.substring(0, lastSpace);
-                    }
-                  }
-                  
-                  say.speak(chunk, null, null, (chunkErr) => {
-                    if (!chunkErr) {
-                      // Continue with next chunk after a small pause
-                      setTimeout(() => speakChunks(text, chunkIndex + 1), 500);
-                    }
-                  });
-                }
-                
-                // Start speaking chunks
-                if (voiceContent) {
-                  speakChunks(voiceContent);
-                }
-              }
-            });
-          }
-          
-          createCustomNotification(emailData);
-          
-          // Send data to renderer for UI updates
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('new-email', emailData);
-          }
-        }
-      }
-    }
-    
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('email-count-update', newEmails.length);
-    }
-  } catch (error) {
-    console.error('Error checking emails:', error);
-  }
-}
-
-async function startMonitoring() {
-  if (isMonitoring) return;
-  isMonitoring = true;
-  monitoringStartTime = Date.now();
-  knownEmailIds.clear(); // Clear to start fresh
-  
-  // Initial check to populate known emails (prevents showing old emails as new)
-  try {
-    const initialEmails = await getNewEmails();
-    knownEmailIds = new Set(initialEmails.map(email => email.id));
-    console.log(`Initialized with ${knownEmailIds.size} existing unread emails`);
-  } catch (error) {
-    console.error('Error during initial email check:', error);
-  }
-  
-  const monitoringInterval = setInterval(async () => {
-    if (!isMonitoring) {
-      clearInterval(monitoringInterval);
-      return;
-    }
-    await checkForNewEmails();
-  }, 10000); // Check every 10 seconds
-  
-  return monitoringInterval;
-}
-
-function stopMonitoring() {
-  isMonitoring = false;
-  monitoringStartTime = null;
-  knownEmailIds.clear();
-  
-  // Close all active notifications
-  activeNotifications.forEach(notification => {
-    if (!notification.isDestroyed()) {
-      notification.close();
-    }
-  });
-  activeNotifications.clear();
-}
-
-// IPC handlers
-ipcMain.handle('check-new-mail', async () => {
-  if (!gmail) await initializeGmail();
-  const newEmails = await getNewEmails();
-  return newEmails.length;
-});
-
-ipcMain.handle('start-monitoring', async () => {
-  if (!gmail) await initializeGmail();
-  await startMonitoring();
-  return 'Monitoring started';
-});
-
-ipcMain.handle('stop-monitoring', () => {
-  stopMonitoring();
-  return 'Monitoring stopped';
-});
-
-ipcMain.handle('update-settings', (event, newSettings) => {
-  settings = { ...settings, ...newSettings };
-  console.log('Settings updated:', settings);
-  return settings;
-});
-
-ipcMain.handle('get-settings', () => settings);
 
 ipcMain.handle('download-attachment', async (event, messageId, attachmentId, filename) => {
   try {
@@ -2331,6 +1521,21 @@ async function toggleStarEmail(messageId) { // This is the one used by IPC
   }
 }
 
+async function untrashEmail(messageId) { // This is the one used by IPC
+  try {
+    await gmail.users.messages.untrash({ userId: 'me', id: messageId });
+    // Add to knownEmailIds if it was previously removed by moveToTrash,
+    // though untrashing usually means it's back in inbox and might be picked up as "new"
+    // depending on labels. For simplicity, we don't explicitly manage knownEmailIds here
+    // as it might reappear as unread.
+    console.log(`Successfully untrashed email ${messageId} (IPC)`);
+    return { success: true, messageId };
+  } catch (error) {
+    console.error(`Untrash email failed for ${messageId} (IPC):`, error);
+    return { success: false, error: error.message, messageId, code: error.code };
+  }
+}
+
 // --- EMAIL MONITORING SERVICE ---
 async function checkForNewEmails() {
   if (!gmail || !isMonitoring) return;
@@ -2432,16 +1637,4 @@ ipcMain.handle('update-settings', (event, newSettings) => {
 
 ipcMain.handle('get-settings', () => settings);
 
-ipcMain.handle('download-attachment', async (event, messageId, attachmentId, filename) => {
-  try {
-    const filePath = await downloadAttachment(messageId, attachmentId, filename); // Uses the one under GMAIL API ACTIONS
-    // For feedback to notification window, it's better to handle it in the notification's own JS via preload
-    return { success: true, filePath };
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('mark-as-read', async (event, messageId) => await markAsRead(messageId)); // Uses the one under GMAIL API ACTIONS
-ipcMain.handle('move-to-trash', async (event, messageId) => await moveToTrash(messageId)); // Uses the one under GMAIL API ACTIONS
-ipcMain.handle('snooze-email', async (event, messageId) => await toggleStarEmail(messageId)); // Uses the one under GMAIL API ACTIONS
+ipcMain.handle('untrash-email', async (event, messageId) => await untrashEmail(messageId)); // Uses the one under GMAIL API ACTIONS
