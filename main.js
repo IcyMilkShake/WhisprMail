@@ -37,7 +37,7 @@ let settings = {
 };
 
 // --- PYTHON SCRIPT EXECUTION HELPER ---
-function executePythonScript(scriptName, scriptArgs = [], inputText = null, timeout = 10000) {
+function executePythonScript(scriptName, scriptArgs = [], inputText = null, timeout = 100000) {
   return new Promise((resolve, reject) => {
     const fullScriptPath = path.join(__dirname, scriptName);
     const pythonProcess = spawn(PYTHON_EXECUTABLE_PATH, [fullScriptPath, ...scriptArgs]);
