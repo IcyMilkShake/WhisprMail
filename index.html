@@ -488,6 +488,37 @@
           </div>
         </div>
       </div>
+
+      <!-- Add this new card after the existing settings card -->
+      <div class="glass-card" id="notifiableAuthorsCard" style="margin-top: 20px;">
+        <div class="header">
+          <h2 style="color: white; font-size: 20px; font-weight: 600; margin-bottom: 5px; text-shadow: 0 1px 3px rgba(0,0,0,0.2);">📬 Notifiable Authors</h2>
+          <div class="subtitle" style="font-size: 13px;">Manage email addresses for custom notifications</div>
+        </div>
+        <div class="authors-section" style="padding: 24px;">
+          <div class="add-author-form" style="margin-bottom: 20px; display: flex; gap: 10px; align-items: center;">
+            <input type="email" id="notifiableAuthorEmailInput" placeholder="Enter author's email" style="flex-grow: 1; padding: 12px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px;">
+            <button id="addNotifiableAuthorBtn" class="control-btn" style="background: linear-gradient(135deg, #10b981, #059669); color: white; padding: 12px 18px; font-size: 14px; white-space: nowrap;">
+              <span>➕</span> Add Author
+            </button>
+          </div>
+          <div class="notifiable-authors-list-container">
+            <h3 style="font-size: 17px; font-weight: 600; margin-bottom: 12px; color: #333; border-bottom: 1px solid #eee; padding-bottom: 8px;">Current Notification List:</h3>
+            <ul id="notifiableAuthorsList" style="list-style: none; padding: 0; max-height: 200px; overflow-y: auto;">
+              <!-- Author items will be dynamically added here by renderer.js -->
+              <!-- Example structure for renderer.js:
+              <li style="display: flex; justify-content: space-between; align-items: center; padding: 10px 5px; border-bottom: 1px solid #f0f0f0; font-size: 14px; color: #444;">
+                <span class="author-email">author@example.com</span>
+                <button class="remove-author-btn" data-email="author@example.com" style="background: linear-gradient(135deg, #ef4444, #dc2626); color: white; border: none; border-radius: 6px; padding: 6px 12px; font-size: 12px; cursor: pointer; transition: background-color 0.2s ease;">
+                  <span>🗑️</span> Remove
+                </button>
+              </li>
+              -->
+            </ul>
+            <p id="noNotifiableAuthorsMsg" style="color: #555; font-style: italic; margin-top: 10px; text-align: center; display: none;">No authors added yet. Add an email to start receiving specific notifications.</p>
+          </div>
+        </div>
+      </div>
       
       <div class="footer">
         Desktop notifications will appear automatically

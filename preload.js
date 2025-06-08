@@ -14,7 +14,11 @@ contextBridge.exposeInMainWorld('gmail', {
   removeAllListeners: () => {
     ipcRenderer.removeAllListeners('email-count-update');
     ipcRenderer.removeAllListeners('new-email');
-  }
+  },
+  // Add the new functions for notifiable authors:
+  getNotifiableAuthors: () => ipcRenderer.invoke('get-notifiable-authors'),
+  addNotifiableAuthor: (email) => ipcRenderer.invoke('add-notifiable-author', email),
+  removeNotifiableAuthor: (email) => ipcRenderer.invoke('remove-notifiable-author', email)
 });
 
 // Electron API for notification windows (used when this preload is loaded in notification windows)
