@@ -203,7 +203,6 @@ async function initializeGmail() {
 
   gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
 }
-
 // --- EMAIL PROCESSING & ANALYSIS ---
 async function getNewEmails() {
   try {
@@ -240,14 +239,18 @@ function extractSenderName(fromHeader) {
 
 function processEmailContent(payload) {
   let textContent = '';
+  let htmlBody = '';
   let attachments = [];
 
-  function extractContent(part) {
-    if (!part) return;
-    if (part.parts) {
-      part.parts.forEach(extractContent);
-    } else if (part.mimeType === 'text/plain' && part.body?.data) {
-      textContent += Buffer.from(part.body.data, 'base64').toString('utf-8');
+  function extractPartData(part) {
+    if (part.mimeType === 'text/plain' && part.body?.data) {
+      if (!textContent) { // Only take the first plain text part found
+        textContent += Buffer.from(part.body.data, 'base64').toString('utf-8');
+      }
+    } else if (part.mimeType === 'text/html' && part.body?.data) {
+      if (!htmlBody) { // Only take the first HTML part found
+        htmlBody += Buffer.from(part.body.data, 'base64').toString('utf-8');
+      }
     } else if (part.filename && part.body?.attachmentId) {
       attachments.push({
         filename: part.filename,
@@ -258,22 +261,48 @@ function processEmailContent(payload) {
     }
   }
 
-  if (payload?.body?.data && (payload.mimeType === 'text/plain' || payload.mimeType === 'text/html')) {
-    let rawBody = Buffer.from(payload.body.data, 'base64').toString('utf-8');
-    if (payload.mimeType === 'text/html') {
-      rawBody = rawBody.replace(/<style([\s\S]*?)<\/style>/gi, '')
-                       .replace(/<script([\s\S]*?)<\/script>/gi, '')
-                       .replace(/<\/div>|<\/li>|<\/p>|<br\s*\/?>/gi, '\n')
-                       .replace(/<li>/ig, '  *  ')
-                       .replace(/<[^>]+>/ig, '');
+  function findParts(parts) {
+    if (!parts) return;
+    for (const part of parts) {
+      if (part.parts) {
+        findParts(part.parts); // Recurse for multipart/*
+      } else {
+        extractPartData(part);
+      }
+      // Optimization: if we have both html and text, and don't need more attachments, we could break early.
+      // For now, let's iterate through all to ensure all attachments are caught.
     }
-    textContent = rawBody;
-  } else if (payload?.parts) {
-    extractContent(payload);
   }
 
+  if (payload) {
+    if (payload.mimeType === 'text/html' && payload.body?.data) {
+      htmlBody = Buffer.from(payload.body.data, 'base64').toString('utf-8');
+      // If the main payload is HTML, we might still need to find a text part if one exists
+      // or generate plain text from HTML if htmlBody is populated but textContent isn't.
+    } else if (payload.mimeType === 'text/plain' && payload.body?.data) {
+      textContent = Buffer.from(payload.body.data, 'base64').toString('utf-8');
+    }
+
+    if (payload.parts) {
+      findParts(payload.parts);
+    }
+
+    // If HTML body is found, and plain text is not, generate plain text from HTML as a fallback
+    if (htmlBody && !textContent) {
+      let tempText = htmlBody
+        .replace(/<style([\s\S]*?)<\/style>/gi, '')
+        .replace(/<script([\s\S]*?)<\/script>/gi, '')
+        .replace(/<\/div>|<\/li>|<\/p>|<br\s*\/?>/gi, '\n')
+        .replace(/<li>/ig, '  *  ')
+        .replace(/<[^>]+>/ig, '');
+      textContent = tempText.replace(/\s+/g, ' ').trim();
+    } else if (textContent && !htmlBody) {
+      // If only textContent is available, no action needed for htmlBody (it remains empty)
+    }
+  }
+  
   textContent = textContent.replace(/\[image:.*?\]/gi, '').replace(/\s+/g, ' ').trim();
-  return { textContent, attachments };
+  return { textContent, htmlBody, attachments };
 }
 
 async function getEmailDetails(messageId) {
@@ -286,7 +315,8 @@ async function getEmailDetails(messageId) {
     const fromHeader = headers.find(h => h.name.toLowerCase() === 'from')?.value || 'Unknown Sender';
     const subject = headers.find(h => h.name.toLowerCase() === 'subject')?.value || 'No Subject';
 
-    const { textContent, attachments } = processEmailContent(payload);
+    const processedContent = processEmailContent(payload);
+    const { textContent, htmlBody, attachments } = processedContent;
     const contentForAnalysis = `${subject}\n\n${textContent}`.trim();
 
     console.log(`Processing email: "${subject}" from ${fromHeader}`);
@@ -296,7 +326,7 @@ async function getEmailDetails(messageId) {
 
     return {
       from: extractSenderName(fromHeader),
-      subject, body: textContent, attachments,
+      subject, body: textContent, htmlBody: htmlBody, attachments,
       id: messageId, tone, readTime, urgency: tone.urgency
     };
   } catch (error) {
@@ -327,7 +357,6 @@ async function summarizeText(text) {
       return text; // Fallback to original text
     });
 }
-
 async function detectEmotionalTone(text) {
   console.log("Analyzing email tone via Python script for:", text.substring(0, 100) + "...");
   // Python script now handles empty/short text appropriately
@@ -1231,34 +1260,6 @@ function createEnhancedNotificationHTML(emailData) {
   return finalHTML;
 }
 
-
-// NOTE: Duplicated versions of summarizeText, detectEmotionalTone, fallbackUrgencyDetection,
-// and estimateReadTime have been removed.
-// Their definitions are consolidated elsewhere in the file (using executePythonScript or under UTILITY FUNCTIONS).
-
-// NOTE: The duplicated functions createAuthServer, initializeGmail, getNewEmails,
-// extractSenderName, processEmailContent, getEmailDetails, and the first downloadAttachment
-// have been removed. Their definitions are consolidated elsewhere in the file.
-
-// Gmail API Actions
-// Enhanced Gmail API Actions with proper error handling and scope management
-
-// Removing the duplicated SCOPES and associated functions.
-// This was previously identified as a source of error.
-// The SEARCH block targets the beginning of this duplicated section.
-// The REPLACE block is empty, effectively deleting this section.
-// End of the duplicated block to be deleted.
-
-// NOTE: The older versions of markAsRead, moveToTrash, and toggleStarEmail that were here
-// have been removed as per the refactoring task.
-// The versions used by IPC handlers are located further down under
-// `// --- GMAIL API ACTIONS (Called via IPC) ---`
-
-// NOTE: Duplicated versions of captureEmailWithPuppeteer, runPythonOCR, processEmailWithOCR,
-// checkForNewEmails, startMonitoring, and stopMonitoring have been removed.
-// Their definitions are consolidated elsewhere in the file.
-
-
 ipcMain.handle('download-attachment', async (event, messageId, attachmentId, filename) => {
   try {
     const filePath = await downloadAttachment(messageId, attachmentId, filename);
@@ -1544,11 +1545,6 @@ async function checkForNewEmails() {
             
             if (settings.speakSubject && notificationData.subject) {
               voiceMsgParts.push(`Subject: ${notificationData.subject}.`);
-            }
-            
-            // ADD THIS: Include the email body/description
-            if (notificationData.body) {
-              voiceMsgParts.push(`Description: ${notificationData.body}.`);
             }
             
             if (voiceMsgParts.length > 0) {
