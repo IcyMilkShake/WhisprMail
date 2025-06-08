@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, Notification, shell, screen } = require('el
 const path = require('path');
 const fs = require('fs');
 const { google } = require('googleapis');
-const open = require('open').default || require('open');
+// const open = require('open').default || require('open'); // Changed to dynamic import
 const http = require('http');
 const say = require('say');
 const { spawn } = require('child_process');
@@ -198,6 +198,7 @@ async function initializeGmail() {
       prompt: 'consent'
     });
 
+    const open = (await import('open')).default; // Dynamic import
     await open(authUrl);
     const code = await createAuthServer();
     const { tokens } = await oAuth2Client.getToken(code);
@@ -243,70 +244,74 @@ function extractSenderName(fromHeader) {
 
 function processEmailContent(payload) {
   let textContent = '';
-  let htmlBody = '';
+  let htmlContent = ''; // New variable to store HTML content
   let attachments = [];
 
-  function extractPartData(part) {
-    if (part.mimeType === 'text/plain' && part.body?.data) {
-      if (!textContent) { // Only take the first plain text part found
-        textContent += Buffer.from(part.body.data, 'base64').toString('utf-8');
+  function extractContent(part) {
+    if (!part) return;
+
+    if (part.parts) {
+      part.parts.forEach(extractContent);
+    } else {
+      if (part.mimeType === 'text/plain' && part.body?.data) {
+        // Prefer textContent from dedicated text/plain parts if htmlContent is also found elsewhere
+        // but append if multiple text/plain parts exist.
+        if (textContent === '') { // Only take the first one if multiple are present
+             textContent += Buffer.from(part.body.data, 'base64').toString('utf-8');
+        }
+      } else if (part.mimeType === 'text/html' && part.body?.data) {
+        // Prefer htmlContent from dedicated text/html parts
+         if (htmlContent === '') { // Only take the first one if multiple are present
+            htmlContent += Buffer.from(part.body.data, 'base64').toString('utf-8');
+        }
+      } else if (part.filename && part.body?.attachmentId) {
+        attachments.push({
+          filename: part.filename,
+          mimeType: part.mimeType,
+          attachmentId: part.body.attachmentId,
+          size: part.body.size
+        });
       }
-    } else if (part.mimeType === 'text/html' && part.body?.data) {
-      if (!htmlBody) { // Only take the first HTML part found
-        htmlBody += Buffer.from(part.body.data, 'base64').toString('utf-8');
-      }
-    } else if (part.filename && part.body?.attachmentId) {
-      attachments.push({
-        filename: part.filename,
-        mimeType: part.mimeType,
-        attachmentId: part.body.attachmentId,
-        size: part.body.size
-      });
     }
   }
 
-  function findParts(parts) {
-    if (!parts) return;
-    for (const part of parts) {
-      if (part.parts) {
-        findParts(part.parts); // Recurse for multipart/*
-      } else {
-        extractPartData(part);
-      }
-      // Optimization: if we have both html and text, and don't need more attachments, we could break early.
-      // For now, let's iterate through all to ensure all attachments are caught.
-    }
-  }
-
-  if (payload) {
-    if (payload.mimeType === 'text/html' && payload.body?.data) {
-      htmlBody = Buffer.from(payload.body.data, 'base64').toString('utf-8');
-      // If the main payload is HTML, we might still need to find a text part if one exists
-      // or generate plain text from HTML if htmlBody is populated but textContent isn't.
-    } else if (payload.mimeType === 'text/plain' && payload.body?.data) {
+  // Handle cases where the body is directly in the payload (not in parts)
+  if (payload?.body?.data) {
+    if (payload.mimeType === 'text/plain' && !textContent) {
       textContent = Buffer.from(payload.body.data, 'base64').toString('utf-8');
-    }
-
-    if (payload.parts) {
-      findParts(payload.parts);
-    }
-
-    // If HTML body is found, and plain text is not, generate plain text from HTML as a fallback
-    if (htmlBody && !textContent) {
-      let tempText = htmlBody
-        .replace(/<style([\s\S]*?)<\/style>/gi, '')
-        .replace(/<script([\s\S]*?)<\/script>/gi, '')
-        .replace(/<\/div>|<\/li>|<\/p>|<br\s*\/?>/gi, '\n')
-        .replace(/<li>/ig, '  *  ')
-        .replace(/<[^>]+>/ig, '');
-      textContent = tempText.replace(/\s+/g, ' ').trim();
-    } else if (textContent && !htmlBody) {
-      // If only textContent is available, no action needed for htmlBody (it remains empty)
+    } else if (payload.mimeType === 'text/html' && !htmlContent) {
+      htmlContent = Buffer.from(payload.body.data, 'base64').toString('utf-8');
     }
   }
-  
+
+  // If there are parts, prioritize them
+  if (payload?.parts) {
+    extractContent(payload);
+  }
+
+  // If HTML content is present but no plain text, try to create a basic plain text version from HTML.
+  if (htmlContent && !textContent) {
+    let rawBody = htmlContent;
+    rawBody = rawBody.replace(/<style([\s\S]*?)<\/style>/gi, '')
+                     .replace(/<script([\s\S]*?)<\/script>/gi, '')
+                     .replace(/<\/div>|<\/li>|<\/p>|<br\s*\/?>/gi, '\n')
+                     .replace(/<li>/ig, '  *  ')
+                     .replace(/<[^>]+>/ig, '');
+    textContent = rawBody.replace(/\s+/g, ' ').trim();
+  }
+
+  // If plain text is present but no HTML, use plain text as a fallback for HTML (wrapped in pre)
+  // This is less ideal but ensures htmlBody is always somewhat populated if textContent exists.
+  // However, the goal is to use actual HTML when available. So only do this if htmlContent is truly empty.
+  if (textContent && !htmlContent) {
+    htmlContent = `<pre style="white-space: pre-wrap; font-family: sans-serif;">${textContent}</pre>`;
+  }
+
+
   textContent = textContent.replace(/\[image:.*?\]/gi, '').replace(/\s+/g, ' ').trim();
-  return { textContent, htmlBody, attachments };
+  // htmlContent is kept raw as it will be rendered in an iframe.
+
+  return { textContent, htmlContent, attachments };
 }
 
 async function getEmailDetails(messageId) {
@@ -329,20 +334,25 @@ async function getEmailDetails(messageId) {
     }
     const subject = headers.find(h => h.name.toLowerCase() === 'subject')?.value || 'No Subject';
 
-    const processedContent = processEmailContent(payload);
-    const { textContent, htmlBody, attachments } = processedContent;
+    const { textContent, htmlContent, attachments } = processEmailContent(payload); // New line
     const contentForAnalysis = `${subject}\n\n${textContent}`.trim();
 
     console.log(`Processing email: "${subject}" from ${fromHeader}`);
 
     const tone = await detectEmotionalTone(contentForAnalysis);
-    const readTime = estimateReadTime(textContent); // Moved estimateReadTime to UTILITY
+    const readTime = estimateReadTime(textContent);
 
     return {
-      from: extractSenderName(fromHeader), // This is the display name
-      fromEmail: fromEmail, // This is the actual email address
-      subject, body: textContent, attachments,
-      id: messageId, tone, readTime, urgency: tone.urgency
+      from: extractSenderName(fromHeader),
+      fromEmail: fromEmail,
+      subject,
+      body: textContent, // This is the plain text body
+      bodyHtml: htmlContent, // This is the HTML body
+      attachments,
+      id: messageId,
+      tone,
+      readTime,
+      urgency: tone.urgency
     };
   } catch (error) {
     console.error(`Error getting email details for ${messageId}:`, error);
@@ -632,9 +642,77 @@ function closeNotificationWithAnimation(notificationWindow) {
     });
   }
 }
+
+const IFRAME_BASE_CSS = `
+      <style>
+        body {
+          margin: 10px;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+          font-size: 14px;
+          line-height: 1.5;
+          color: #333;
+          background-color: #fff; /* Ensure a background color */
+          overflow: auto; /* Enable scrolling within the iframe's body */
+          word-wrap: break-word;
+        }
+        a {
+          color: #1a73e8;
+          text-decoration: none;
+        }
+        a:hover {
+          text-decoration: underline;
+        }
+        img {
+          max-width: 100%;
+          height: auto;
+          display: block; /* Helps with spacing */
+          margin: 5px 0;
+        }
+        p, div, li, th, td {
+            /* Ensure text within common block elements also wraps */
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+        /* Add other basic styles as needed for tables, lists, blockquotes etc. */
+        table {
+            border-collapse: collapse;
+            width: auto; /* Or 100% if you want tables to try to fill width */
+            max-width: 100%;
+            margin-bottom: 1em;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        blockquote {
+            border-left: 3px solid #ccc;
+            padding-left: 10px;
+            margin-left: 5px;
+            color: #555;
+        }
+        pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            background: #f4f4f4;
+            padding: 10px;
+            border-radius: 4px;
+            overflow: auto;
+        }
+        ul, ol {
+            padding-left: 20px;
+        }
+      </style>
+    `;
+
 function createEnhancedNotificationHTML(emailData) {
-  console.log('[MAIN DEBUG] createEnhancedNotificationHTML received emailData.id:', emailData ? emailData.id : 'emailData is null/undefined');
-  console.log('[MAIN DEBUG] full emailData:', JSON.stringify(emailData, null, 2));
+  // Parameter is now 'emailData', which is consistent with how it's called.
+  // Let's rename it to 'notificationData' for clarity within this function,
+  // as it might have been processed (e.g., summarization).
+  const notificationData = emailData;
+
+  console.log('[MAIN DEBUG] createEnhancedNotificationHTML received notificationData.id:', notificationData ? notificationData.id : 'notificationData is null/undefined');
+  console.log('[MAIN DEBUG] full notificationData:', JSON.stringify(notificationData, null, 2));
   console.log(`Creating notification for email with urgency: ${emailData.urgency}`);
   
   const senderInitial = emailData.from.charAt(0).toUpperCase();
@@ -715,10 +793,27 @@ function createEnhancedNotificationHTML(emailData) {
   `;
 
   // Process body text
-  let bodyText = emailData.body || 'No preview available';
-  let isLongContent = false;
-  if (bodyText.length > 2000) {
-    isLongContent = true;
+  const plainBodyForDisplay = notificationData.body || 'No preview available';
+  let isPlainFallbackLong = false;
+  if (!notificationData.bodyHtml && plainBodyForDisplay.length > 2000) { // Check length of plain text
+      isPlainFallbackLong = true;
+  }
+
+  let emailBodyDisplayHTML;
+  if (notificationData.bodyHtml) {
+    const sandboxRules = "allow-popups allow-scripts allow-same-origin";
+    emailBodyDisplayHTML = `
+      <div class="body-html-container" style="height: 200px; max-height: 200px; overflow: hidden; background-color: #fff; border: 1px solid #eee; border-radius: 4px;">
+        <iframe
+          srcdoc="${IFRAME_BASE_CSS}${notificationData.bodyHtml.replace(/"/g, '&quot;')}"
+          style="width: 100%; height: 100%; border: none;"
+          sandbox="${sandboxRules}"
+        ></iframe>
+      </div>
+    `;
+  } else {
+    // Fallback to plain text
+    emailBodyDisplayHTML = `<div class="body-text" style="max-height: 200px; overflow-y: auto; padding: 8px; background-color: #fff; border: 1px solid #eee; border-radius: 4px;">${plainBodyForDisplay}</div>`;
   }
 
   const finalHTML = `
@@ -914,16 +1009,33 @@ function createEnhancedNotificationHTML(emailData) {
           word-wrap: break-word;
         }
         
+        /* Styles for the fallback .body-text if iframe is not used */
         .body-text {
           color: #555;
           font-size: 13px;
           line-height: 1.5;
-          flex: 1;
-          overflow-y: auto;
+          flex: 1; /* Ensure it takes up space if it's the main content view */
+          overflow-y: auto; /* Allow scrolling for plain text too */
           word-wrap: break-word;
           white-space: pre-wrap;
-          max-height: 200px;
-          padding-right: 8px;
+          max-height: 200px; /* Consistent max height */
+          padding-right: 8px; /* For scrollbar */
+          background-color: #fff; /* Match iframe container background */
+          border: 1px solid #eee; /* Match iframe container border */
+          border-radius: 4px; /* Match iframe container border-radius */
+          padding: 10px; /* Add some padding */
+        }
+
+        /* Styles for the iframe container */
+        .body-html-container {
+            height: 200px; /* Fixed height for the email body display area */
+            max-height: 200px; /* Ensure it doesn't exceed this */
+            overflow: hidden; /* The iframe inside will scroll */
+            background-color: #fff;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            flex-grow: 1; /* Allow it to take available space in flex column */
+            min-height: 0; /* Important for flex item that needs to scroll */
         }
         
         .body-text::-webkit-scrollbar {
@@ -1131,19 +1243,23 @@ function createEnhancedNotificationHTML(emailData) {
         /* Removed .notification-container:hover */
         
         @media (max-height: 400px) {
-          .body-text {
+          .body-text { /* This would apply to the fallback */
+            max-height: 100px;
+          }
+          .body-html-container { /* And also to the iframe container */
+            height: 100px;
             max-height: 100px;
           }
         }
       </style>
     </head>
     <body>
-      <div class="notification-container ${emailData.urgency === 'high' ? 'high-urgency' : ''}">
+      <div class="notification-container ${notificationData.urgency === 'high' ? 'high-urgency' : ''}">
         <div class="main-content">
-          <div class="avatar ${emailData.urgency === 'high' ? 'high-urgency' : ''}">${senderInitial}</div>
+          <div class="avatar ${notificationData.urgency === 'high' ? 'high-urgency' : ''}">${senderInitial}</div>
           <div class="content">
             <div class="header">
-              <div class="sender">${emailData.from}</div>
+              <div class="sender">${notificationData.from}</div>
               <div class="badges">
                 ${urgencyBadge}
                 ${summaryBadge}
@@ -1151,9 +1267,9 @@ function createEnhancedNotificationHTML(emailData) {
                 ${ocrBadge}
               </div>
             </div>
-            <div class="subject">${emailData.subject || 'No Subject'}</div>
-            <div class="body-text">${bodyText}</div>
-            ${isLongContent ? '<div class="long-content-indicator">📄 Long email - click to view full content in main app</div>' : ''}
+            <div class="subject">${notificationData.subject || 'No Subject'}</div>
+            ${emailBodyDisplayHTML}
+            ${isPlainFallbackLong ? '<div class="long-content-indicator">📄 Long email - click to view full content in main app</div>' : ''}
           </div>
         </div>
         ${attachmentsHTML}
@@ -1271,7 +1387,7 @@ function createEnhancedNotificationHTML(emailData) {
     </html>
   `;
 
-  console.log("Final HTML generated with urgency badge:", urgencyBadge ? "YES" : "NO");
+  console.log("Final HTML generated with urgency badge:", urgencyBadge ? "YES" : "NO", "Uses Iframe:", !!notificationData.bodyHtml);
   return finalHTML;
 }
 
@@ -1717,3 +1833,5 @@ async function saveNotifiableAuthors() {
     console.error('Failed to save notifiable authors:', error);
   }
 }
+
+// TEMPORARY EXPORT FOR TESTING
