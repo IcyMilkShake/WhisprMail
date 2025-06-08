@@ -6,7 +6,7 @@
     "start": "electron ."
   },
   "devDependencies": {
-    "electron": "^36.3.1"
+    "electron": "^36.4.0"
   },
   "dependencies": {
     "@google-cloud/text-to-speech": "^6.1.0",
@@ -20,5 +20,13 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": ""
+  "description": "��#\u0000 \u0000W\u0000h\u0000i\u0000s\u0000p\u0000r\u0000M\u0000a\u0000i\u0000l\u0000\r\u0000 \u0000",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/IcyMilkShake/WhisprMail.git"
+  },
+  "bugs": {
+    "url": "https://github.com/IcyMilkShake/WhisprMail/issues"
+  },
+  "homepage": "https://github.com/IcyMilkShake/WhisprMail#readme"
 }

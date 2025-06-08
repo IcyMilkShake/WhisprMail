@@ -17,6 +17,10 @@ const countNumber = document.getElementById('countNumber');
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
 const checkBtn = document.getElementById('checkBtn');
+const notifiableAuthorEmailInput = document.getElementById('notifiableAuthorEmailInput');
+const addNotifiableAuthorBtn = document.getElementById('addNotifiableAuthorBtn');
+const notifiableAuthorsListUL = document.getElementById('notifiableAuthorsList'); // Renamed for clarity
+const noNotifiableAuthorsMsg = document.getElementById('noNotifiableAuthorsMsg');
 
 function updateUI() {
   if (isMonitoring) {
@@ -286,9 +290,134 @@ document.addEventListener('DOMContentLoaded', async () => {
       startMonitoring();
     }
   }, 1000);
+
+  // Notifiable Authors
+  addNotifiableAuthorBtn.addEventListener('click', handleAddAuthor);
+  loadAndRenderNotifiableAuthors(); // Load and display the list on startup
 });
 
 // Cleanup on unload
 window.addEventListener('beforeunload', () => {
   window.gmail.removeAllListeners();
 });
+
+// --- NOTIFIABLE AUTHORS UI LOGIC ---
+
+function renderNotifiableAuthorsList(authors) {
+  notifiableAuthorsListUL.innerHTML = ''; // Clear existing list items
+
+  if (!authors || authors.length === 0) {
+    noNotifiableAuthorsMsg.style.display = 'block';
+    notifiableAuthorsListUL.style.display = 'none';
+  } else {
+    noNotifiableAuthorsMsg.style.display = 'none';
+    notifiableAuthorsListUL.style.display = 'block';
+    authors.forEach(email => {
+      const listItem = document.createElement('li');
+      listItem.style.display = 'flex';
+      listItem.style.justifyContent = 'space-between';
+      listItem.style.alignItems = 'center';
+      listItem.style.padding = '10px 5px';
+      listItem.style.borderBottom = '1px solid #f0f0f0';
+      listItem.style.fontSize = '14px';
+      listItem.style.color = '#444';
+
+      const emailSpan = document.createElement('span');
+      emailSpan.textContent = email;
+      emailSpan.className = 'author-email'; // From index.html example
+
+      const removeBtn = document.createElement('button');
+      removeBtn.innerHTML = '<span>🗑️</span> Remove'; // Using innerHTML to include span for icon
+      removeBtn.dataset.email = email;
+      removeBtn.className = 'remove-author-btn'; // For potential shared styling
+      // Applying styles similar to those in index.html example, can be moved to CSS
+      removeBtn.style.background = 'linear-gradient(135deg, #ef4444, #dc2626)';
+      removeBtn.style.color = 'white';
+      removeBtn.style.border = 'none';
+      removeBtn.style.borderRadius = '6px';
+      removeBtn.style.padding = '6px 12px';
+      removeBtn.style.fontSize = '12px';
+      removeBtn.style.cursor = 'pointer';
+      removeBtn.style.transition = 'background-color 0.2s ease';
+
+      removeBtn.addEventListener('click', handleRemoveAuthor);
+
+      listItem.appendChild(emailSpan);
+      listItem.appendChild(removeBtn);
+      notifiableAuthorsListUL.appendChild(listItem);
+    });
+  }
+}
+
+async function loadAndRenderNotifiableAuthors() {
+  try {
+    const authors = await window.gmail.getNotifiableAuthors(); // Assumes preload.js exposes this
+    renderNotifiableAuthorsList(authors);
+  } catch (error) {
+    console.error('Error loading notifiable authors:', error);
+    showNotification('Failed to load notifiable authors list.', 'error');
+    renderNotifiableAuthorsList([]); // Render empty list on error
+  }
+}
+
+async function handleAddAuthor() {
+  const email = notifiableAuthorEmailInput.value.trim();
+  if (!email) {
+    showNotification('Please enter an email address.', 'error');
+    return;
+  }
+  // Basic email validation regex
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    showNotification('Please enter a valid email address.', 'error');
+    return;
+  }
+
+  setLoading(addNotifiableAuthorBtn, true);
+  try {
+    const result = await window.gmail.addNotifiableAuthor(email); // Assumes preload.js
+    if (result.success) {
+      notifiableAuthorEmailInput.value = ''; // Clear input
+      renderNotifiableAuthorsList(result.authors);
+      showNotification('Author added successfully!', 'success');
+      showSuccessFlash(document.getElementById('notifiableAuthorsCard')); // Flash the card
+    } else {
+      showNotification(result.error || 'Failed to add author.', 'error');
+    }
+  } catch (error) {
+    console.error('Error adding notifiable author:', error);
+    showNotification('An error occurred while adding the author.', 'error');
+  } finally {
+    setLoading(addNotifiableAuthorBtn, false);
+  }
+}
+
+async function handleRemoveAuthor(event) {
+  // 'this' refers to the button clicked, or use event.currentTarget
+  const buttonElement = event.currentTarget;
+  const email = buttonElement.dataset.email;
+  if (!email) return;
+
+  setLoading(buttonElement, true); // Visually indicate loading on the button itself
+  try {
+    const result = await window.gmail.removeNotifiableAuthor(email); // Assumes preload.js
+    if (result.success) {
+      renderNotifiableAuthorsList(result.authors);
+      showNotification('Author removed successfully!', 'success');
+      showSuccessFlash(document.getElementById('notifiableAuthorsCard'));
+    } else {
+      showNotification(result.error || 'Failed to remove author.', 'error');
+    }
+  } catch (error) {
+    console.error('Error removing notifiable author:', error);
+    showNotification('An error occurred while removing the author.', 'error');
+  } finally {
+    // No need to setLoading(buttonElement, false) as the button will be re-rendered
+    // If an error occurs and list isn't re-rendered, you might want to re-enable it.
+    // However, renderNotifiableAuthorsList will typically redraw.
+    // For safety, if the button might still exist after an error:
+    if (buttonElement && buttonElement.parentElement) { // Check if button is still in DOM
+         setLoading(buttonElement, false);
+    }
+  }
+}
