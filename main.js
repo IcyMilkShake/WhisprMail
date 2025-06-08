@@ -208,6 +208,7 @@ async function initializeGmail() {
 
   gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
 }
+
 // --- EMAIL PROCESSING & ANALYSIS ---
 async function getNewEmails() {
   try {
@@ -382,6 +383,7 @@ async function summarizeText(text) {
       return text; // Fallback to original text
     });
 }
+
 async function detectEmotionalTone(text) {
   console.log("Analyzing email tone via Python script for:", text.substring(0, 100) + "...");
   // Python script now handles empty/short text appropriately
@@ -651,9 +653,14 @@ const IFRAME_BASE_CSS = `
           font-size: 14px;
           line-height: 1.5;
           color: #333;
-          background-color: #fff; /* Ensure a background color */
-          overflow: auto; /* Enable scrolling within the iframe's body */
+          background-color: #fff;
           word-wrap: break-word;
+          overflow-wrap: break-word;
+          /* width: 100%; // Keep if you want body to at least try to fill, but content can make it wider */
+          /* max-width: 100%; // Remove this if body content is meant to define scrollable width */
+          box-sizing: border-box;
+          overflow-x: auto; /* CRITICAL: Re-enable horizontal scrolling for the body */
+          /* overflow-y: auto; // Implicitly handled by default or can be added if needed */
         }
         a {
           color: #1a73e8;
@@ -663,44 +670,57 @@ const IFRAME_BASE_CSS = `
           text-decoration: underline;
         }
         img {
-          max-width: 100%;
-          height: auto;
-          display: block; /* Helps with spacing */
+          max-width: 100%; /* No !important. Allows inline style to override for wider images. */
+          height: auto;    /* No !important. */
+          display: block;
           margin: 5px 0;
         }
-        p, div, li, th, td {
-            /* Ensure text within common block elements also wraps */
+        p, div, li, blockquote {
             word-wrap: break-word;
             overflow-wrap: break-word;
         }
-        /* Add other basic styles as needed for tables, lists, blockquotes etc. */
         table {
-            border-collapse: collapse;
-            width: auto; /* Or 100% if you want tables to try to fill width */
-            max-width: 100%;
-            margin-bottom: 1em;
+          table-layout: auto;  /* More natural for content-based sizing, allows tables to be wider than container */
+          width: auto;         /* Let table determine its own width based on content */
+                           /* Remove max-width: 100% if tables are meant to scroll horizontally */
+          border-collapse: collapse;
+          margin-bottom: 1em;
+          /* word-wrap and overflow-wrap on table itself might be less effective than on cells */
         }
-        th, td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
+        td, th {
+          border: 1px solid #ddd;
+          padding: 8px;
+          text-align: left;
+          word-wrap: break-word;   /* Still important for content within cells */
+          overflow-wrap: break-word;
+          min-width: 0;          /* Still useful for flexible columns */
         }
         blockquote {
             border-left: 3px solid #ccc;
             padding-left: 10px;
             margin-left: 5px;
             color: #555;
+            /* word-wrap and overflow-wrap are now handled by the p, div, li, blockquote rule */
         }
         pre {
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            background: #f4f4f4;
-            padding: 10px;
-            border-radius: 4px;
-            overflow: auto;
+          white-space: pre-wrap;
+          word-wrap: break-word;
+          overflow-x: auto; /* Allows horizontal scroll *within the pre block only* */
+          background: #f4f4f4;
+          padding: 10px;
+          border-radius: 4px;
+          max-width: 100%; /* The pre block itself tries to fit the container width */
+          box-sizing: border-box;
         }
         ul, ol {
             padding-left: 20px;
+        }
+
+        /* Reset outlines to prevent browser default focus rings */
+        div, h1, h2, h3, h4, h5, h6, p, span, li, td, th, a, img, figure, article, section, header, footer, nav, aside, button, input, select, textarea, label {
+          outline: none !important;
+          outline-style: none !important; /* Be explicit */
+          -moz-outline-style: none !important; /* Firefox specific if needed */
         }
       </style>
     `;
@@ -1390,6 +1410,34 @@ function createEnhancedNotificationHTML(emailData) {
   console.log("Final HTML generated with urgency badge:", urgencyBadge ? "YES" : "NO", "Uses Iframe:", !!notificationData.bodyHtml);
   return finalHTML;
 }
+
+
+// NOTE: Duplicated versions of summarizeText, detectEmotionalTone, fallbackUrgencyDetection,
+// and estimateReadTime have been removed.
+// Their definitions are consolidated elsewhere in the file (using executePythonScript or under UTILITY FUNCTIONS).
+
+// NOTE: The duplicated functions createAuthServer, initializeGmail, getNewEmails,
+// extractSenderName, processEmailContent, getEmailDetails, and the first downloadAttachment
+// have been removed. Their definitions are consolidated elsewhere in the file.
+
+// Gmail API Actions
+// Enhanced Gmail API Actions with proper error handling and scope management
+
+// Removing the duplicated SCOPES and associated functions.
+// This was previously identified as a source of error.
+// The SEARCH block targets the beginning of this duplicated section.
+// The REPLACE block is empty, effectively deleting this section.
+// End of the duplicated block to be deleted.
+
+// NOTE: The older versions of markAsRead, moveToTrash, and toggleStarEmail that were here
+// have been removed as per the refactoring task.
+// The versions used by IPC handlers are located further down under
+// `// --- GMAIL API ACTIONS (Called via IPC) ---`
+
+// NOTE: Duplicated versions of captureEmailWithPuppeteer, runPythonOCR, processEmailWithOCR,
+// checkForNewEmails, startMonitoring, and stopMonitoring have been removed.
+// Their definitions are consolidated elsewhere in the file.
+
 
 ipcMain.handle('download-attachment', async (event, messageId, attachmentId, filename) => {
   try {
