@@ -180,7 +180,7 @@ async function initializeGmail() {
 
   const { client_secret, client_id } = CREDENTIALS.installed;
   oAuth2Client = new google.auth.OAuth2(client_id, client_secret, 'http://localhost:3000');
-
+  console.log("initializing gmail")
   if (fs.existsSync(TOKEN_PATH)) {
     const token = JSON.parse(fs.readFileSync(TOKEN_PATH));
     oAuth2Client.setCredentials(token);
