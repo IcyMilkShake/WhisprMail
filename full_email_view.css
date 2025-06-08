@@ -1,0 +1,49 @@
+/* full_email_view.css */
+
+/* Apply box-sizing to all elements for easier layout management */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+/* Body styles are partially set inline in HTML (flex, height, margin, padding, base font) */
+/* This CSS will complement those. */
+body {
+  background-color: #2C2F33; /* Discord - Very dark grey (almost black) */
+  color: #DCDDDE;           /* Discord - Light grey (off-white) for default text */
+}
+
+#emailHeader {
+  background-color: #23272A; /* Discord - Slightly darker than body, good for headers */
+  padding: 12px 20px;
+  border-bottom: 1px solid #1e2124; /* Darker border for separation */
+  flex-shrink: 0; /* Header should not shrink */
+  min-height: 50px; /* Ensure header has some minimum height */
+  display: flex; /* Align items vertically if needed */
+  align-items: center; /* Align items vertically */
+}
+
+#emailHeader h1#emailSubject {
+  margin: 0;
+  font-size: 1.3em; /* Slightly smaller than typical h1 for a window title bar feel */
+  font-weight: 500; /* Medium weight */
+  color: #FFFFFF; /* Pure white for subject title for good contrast */
+  line-height: 1.4;
+  white-space: nowrap; /* Prevent subject from wrapping */
+  overflow: hidden;    /* Hide overflow */
+  text-overflow: ellipsis; /* Add ellipsis if subject is too long */
+  width: 100%; /* Ensure it takes full width to allow ellipsis to work correctly */
+}
+
+#emailContentContainer {
+  flex-grow: 1; /* This makes the main content area fill the remaining vertical space */
+  padding: 10px; /* Padding around the iframe to act as a visual "trinket" or frame */
+  background-color: #36393F; /* Discord - Main content area background (slightly lighter than body) */
+  overflow: hidden; /* The iframe itself will handle scrolling of email content */
+}
+
+/* The #emailBodyFrame iframe is styled inline in the HTML:
+   style="width: 100%; height: 100%; border: none;"
+   This makes it fill the #emailContentContainer.
+   The content *inside* the iframe (the actual email HTML) will be styled by
+   the IFRAME_BASE_CSS string that gets injected into its srcdoc.
+*/

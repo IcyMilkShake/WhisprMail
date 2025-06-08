@@ -27,6 +27,7 @@ let isMonitoring = false;
 let knownEmailIds = new Set();
 let monitoringStartTime = null;
 let activeNotifications = new Set(); // Track active notification windows
+let fullEmailWindows = new Set(); // Optional: to keep track of open email windows
 
 // User settings
 let settings = {
@@ -792,49 +793,52 @@ function createEnhancedNotificationHTML(emailData) {
     ? '<div class="summary-badge">🤖 AI Summary</div>' 
     : '';
 
-  const ocrBadge = emailData.isOCRProcessed ? 
+  const ocrBadge = notificationData.isOCRProcessed ?
     '<div class="ocr-badge">👁️ OCR Processed</div>' : '';
+
+  const viewFullEmailBtnHTML = `
+      <button class="quick-btn view-full-email"
+              onclick="window.electronAPI?.send('open-full-email-window', '${notificationData.id}'); event.stopPropagation();"
+              title="Open full email in a new window"
+              style="background: #5dade2; color: white;">
+        <span class="btn-icon">👁️</span>
+        <span class="btn-text">View Full</span>
+      </button>
+    `;
 
   const quickActionsHTML = `
     <div class="quick-actions">
-      <button class="quick-btn mark-as-read" data-message-id="${emailData.id}">
+      <button class="quick-btn mark-as-read" data-message-id="${notificationData.id}">
         <span class="btn-icon">✓</span>
         <span class="btn-text">Mark Read</span>
       </button>
-      <button class="quick-btn trash" data-message-id="${emailData.id}">
+      ${viewFullEmailBtnHTML}
+      <button class="quick-btn trash" data-message-id="${notificationData.id}">
         <span class="btn-icon">🗑️</span>
         <span class="btn-text">Delete</span>
       </button>
-      <button class="quick-btn star" data-message-id="${emailData.id}">
+      <button class="quick-btn star" data-message-id="${notificationData.id}">
         <span class="btn-icon">⭐</span>
         <span class="btn-text">Star</span>
       </button>
     </div>
   `;
 
-  // Process body text
+  // Always display plain text initially
   const plainBodyForDisplay = notificationData.body || 'No preview available';
-  let isPlainFallbackLong = false;
-  if (!notificationData.bodyHtml && plainBodyForDisplay.length > 2000) { // Check length of plain text
-      isPlainFallbackLong = true;
-  }
-
-  let emailBodyDisplayHTML;
-  if (notificationData.bodyHtml) {
-    const sandboxRules = "allow-popups allow-scripts allow-same-origin";
-    emailBodyDisplayHTML = `
-      <div class="body-html-container" style="height: 200px; max-height: 200px; overflow: hidden; background-color: #fff; border: 1px solid #eee; border-radius: 4px;">
-        <iframe
-          srcdoc="${IFRAME_BASE_CSS}${notificationData.bodyHtml.replace(/"/g, '&quot;')}"
-          style="width: 100%; height: 100%; border: none;"
-          sandbox="${sandboxRules}"
-        ></iframe>
+  const emailBodyDisplayHTML = `
+      <div class="body-text" style="max-height: 180px; /* Adjusted height */ overflow-y: auto; padding: 8px; background-color: #fff; border: 1px solid #eee; border-radius: 4px; white-space: pre-wrap; word-wrap: break-word;">
+        ${plainBodyForDisplay}
       </div>
     `;
-  } else {
-    // Fallback to plain text
-    emailBodyDisplayHTML = `<div class="body-text" style="max-height: 200px; overflow-y: auto; padding: 8px; background-color: #fff; border: 1px solid #eee; border-radius: 4px;">${plainBodyForDisplay}</div>`;
+
+  let isContentLong = false; // Renamed from isPlainFallbackLong
+  if (plainBodyForDisplay.length > 1500) { // Adjusted threshold
+      isContentLong = true;
   }
+  const longContentIndicatorHTML = isContentLong ?
+      '<div class="long-content-indicator">📄 Long email - click View Full Email to see all content</div>' : '';
+
 
   const finalHTML = `
     <!DOCTYPE html>
@@ -1289,7 +1293,7 @@ function createEnhancedNotificationHTML(emailData) {
             </div>
             <div class="subject">${notificationData.subject || 'No Subject'}</div>
             ${emailBodyDisplayHTML}
-            ${isPlainFallbackLong ? '<div class="long-content-indicator">📄 Long email - click to view full content in main app</div>' : ''}
+            ${longContentIndicatorHTML}
           </div>
         </div>
         ${attachmentsHTML}
@@ -1881,5 +1885,60 @@ async function saveNotifiableAuthors() {
     console.error('Failed to save notifiable authors:', error);
   }
 }
+
+ipcMain.on('open-full-email-window', async (event, messageId) => {
+  if (!messageId) {
+    console.error('No messageId provided for opening full email window.');
+    return;
+  }
+
+  try {
+    const emailDetails = await getEmailDetails(messageId);
+
+    if (!emailDetails || !emailDetails.bodyHtml) {
+      console.error(`Could not retrieve details or HTML body for messageId: ${messageId}`);
+      return;
+    }
+
+    let emailViewWindow = new BrowserWindow({
+      width: 900,
+      height: 750,
+      minWidth: 600,
+      minHeight: 400,
+      title: emailDetails.subject || 'View Email',
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.js'),
+        nodeIntegration: false,
+        contextIsolation: true,
+        devTools: true
+      },
+      backgroundColor: '#23272A',
+      show: false
+    });
+
+    fullEmailWindows.add(emailViewWindow);
+    emailViewWindow.on('closed', () => {
+      fullEmailWindows.delete(emailViewWindow);
+      emailViewWindow = null;
+    });
+
+    emailViewWindow.loadFile(path.join(__dirname, 'full_email_view.html'));
+
+    emailViewWindow.once('ready-to-show', () => {
+      emailViewWindow.show();
+    });
+
+    emailViewWindow.webContents.on('did-finish-load', () => {
+      emailViewWindow.webContents.send('email-data-for-full-view', {
+        subject: emailDetails.subject,
+        bodyHtml: emailDetails.bodyHtml,
+        iframeBaseCss: IFRAME_BASE_CSS
+      });
+    });
+
+  } catch (error) {
+    console.error(`Failed to open full email view for messageId ${messageId}:`, error);
+  }
+});
 
 // TEMPORARY EXPORT FOR TESTING
