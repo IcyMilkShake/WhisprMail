@@ -9,6 +9,9 @@ const { spawn } = require('child_process');
 const puppeteer = require('puppeteer');
 require('dotenv').config();
 
+const NOTIFIABLE_AUTHORS_PATH = path.join(app.getPath('userData'), 'notifiable_authors.json');
+let notifiableAuthors = []; // To store email addresses
+
 // --- GLOBAL VARIABLES & CONSTANTS ---
 const PYTHON_EXECUTABLE_PATH = path.join(__dirname, 'python_executor', 'python.exe'); // Added from previous task
 const SCOPES = [
@@ -120,6 +123,7 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   createWindow();
+  loadNotifiableAuthors();
   try {
     await initializeGmail();
     await startMonitoring();
@@ -284,6 +288,16 @@ async function getEmailDetails(messageId) {
 
     const headers = payload.headers;
     const fromHeader = headers.find(h => h.name.toLowerCase() === 'from')?.value || 'Unknown Sender';
+    let fromEmail = 'unknown@example.com'; // Default
+    const emailMatch = fromHeader.match(/<(.+?)>/);
+    if (emailMatch && emailMatch[1]) {
+        fromEmail = emailMatch[1].toLowerCase();
+    } else if (fromHeader.includes('@')) {
+        // Fallback if no <...> format, try to extract a valid email
+        const parts = fromHeader.split(/[\s,;]+/); // Split by common delimiters
+        const foundEmail = parts.find(part => part.includes('@') && part.includes('.'));
+        if (foundEmail) fromEmail = foundEmail.toLowerCase();
+    }
     const subject = headers.find(h => h.name.toLowerCase() === 'subject')?.value || 'No Subject';
 
     const { textContent, attachments } = processEmailContent(payload);
@@ -295,7 +309,8 @@ async function getEmailDetails(messageId) {
     const readTime = estimateReadTime(textContent); // Moved estimateReadTime to UTILITY
 
     return {
-      from: extractSenderName(fromHeader),
+      from: extractSenderName(fromHeader), // This is the display name
+      fromEmail: fromEmail, // This is the actual email address
       subject, body: textContent, attachments,
       id: messageId, tone, readTime, urgency: tone.urgency
     };
@@ -1526,41 +1541,50 @@ async function checkForNewEmails() {
       for (const emailId of unseenEmailIds) {
         const emailDetails = await processEmailWithOCR(emailId);
         if (emailDetails) {
-          let displayText = emailDetails.body;
-          let isSummary = false;
-          if (settings.enableSummary && emailDetails.body) {
-            displayText = await summarizeText(emailDetails.body); // Uses original spawn summarizeText
-            isSummary = displayText !== emailDetails.body;
-          }
-          const notificationData = { ...emailDetails, body: displayText, isSummary };
-          createCustomNotification(notificationData);
+          // Check if the sender is in the notifiableAuthors list
+          if (notifiableAuthors.length === 0 || (emailDetails.fromEmail && notifiableAuthors.includes(emailDetails.fromEmail.toLowerCase()))) {
+            // Original logic for notification and voice reading
+            let displayText = emailDetails.body;
+            let isSummary = false;
+            if (settings.enableSummary && emailDetails.body) {
+              displayText = await summarizeText(emailDetails.body);
+              isSummary = displayText !== emailDetails.body;
+            }
+            const notificationData = { ...emailDetails, body: displayText, isSummary };
+            createCustomNotification(notificationData);
 
-          if (settings.enableVoiceReading) {
-            let voiceMsgParts = [];
-            
-            if (settings.speakSenderName && notificationData.from) {
-              voiceMsgParts.push(`New message from ${notificationData.from}.`);
+            if (settings.enableVoiceReading) {
+              let voiceMsgParts = [];
+
+              if (settings.speakSenderName && notificationData.from) {
+                voiceMsgParts.push(`New message from ${notificationData.from}.`);
+              }
+
+              if (settings.speakSubject && notificationData.subject) {
+                voiceMsgParts.push(`Subject: ${notificationData.subject}.`);
+              }
+
+              // ADD THIS: Include the email body/description
+              if (notificationData.body) {
+                voiceMsgParts.push(`Description: ${notificationData.body}.`);
+              }
+
+              if (voiceMsgParts.length > 0) {
+                const voiceMsg = voiceMsgParts.join(' ');
+                say.speak(voiceMsg);
+              } else {
+                // Fallback if everything is off but voice reading is enabled
+                say.speak("You have a new email.");
+              }
             }
-            
-            if (settings.speakSubject && notificationData.subject) {
-              voiceMsgParts.push(`Subject: ${notificationData.subject}.`);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('new-email', notificationData);
             }
-            
-            // ADD THIS: Include the email body/description
-            if (notificationData.body) {
-              voiceMsgParts.push(`Description: ${notificationData.body}.`);
-            }
-            
-            if (voiceMsgParts.length > 0) {
-              const voiceMsg = voiceMsgParts.join(' ');
-              say.speak(voiceMsg);
-            } else {
-              // Fallback if everything is off but voice reading is enabled
-              say.speak("You have a new email.");
-            }
-          }
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('new-email', notificationData);
+          } else {
+            console.log(`Email from ${emailDetails.fromEmail} not in notifiable authors list. Skipping notification.`);
+            // Optionally, still add to knownEmailIds or handle as a regular email without notification
+            // For now, we just skip the custom notification if not in the list.
+            // If notifiableAuthors is empty, it means notify for all (original behavior).
           }
         }
       }
@@ -1632,3 +1656,63 @@ ipcMain.handle('update-settings', (event, newSettings) => {
 });
 
 ipcMain.handle('get-settings', () => settings);
+
+// --- NOTIFIABLE AUTHORS IPC HANDLERS ---
+ipcMain.handle('get-notifiable-authors', () => {
+  return notifiableAuthors;
+});
+
+ipcMain.handle('add-notifiable-author', async (event, authorEmail) => {
+  if (authorEmail && typeof authorEmail === 'string') {
+    const email = authorEmail.trim().toLowerCase();
+    if (email && !notifiableAuthors.includes(email)) {
+      notifiableAuthors.push(email);
+      await saveNotifiableAuthors();
+      return { success: true, authors: notifiableAuthors };
+    }
+    if (notifiableAuthors.includes(email)) {
+      return { success: false, error: 'Email already exists.', authors: notifiableAuthors };
+    }
+  }
+  return { success: false, error: 'Invalid email provided.', authors: notifiableAuthors };
+});
+
+ipcMain.handle('remove-notifiable-author', async (event, authorEmail) => {
+  if (authorEmail && typeof authorEmail === 'string') {
+    const email = authorEmail.trim().toLowerCase();
+    const index = notifiableAuthors.indexOf(email);
+    if (index > -1) {
+      notifiableAuthors.splice(index, 1);
+      await saveNotifiableAuthors();
+      return { success: true, authors: notifiableAuthors };
+    }
+    return { success: false, error: 'Email not found.', authors: notifiableAuthors };
+  }
+  return { success: false, error: 'Invalid email provided.', authors: notifiableAuthors };
+});
+
+// --- NOTIFIABLE AUTHORS FUNCTIONS ---
+function loadNotifiableAuthors() {
+  try {
+    if (fs.existsSync(NOTIFIABLE_AUTHORS_PATH)) {
+      const data = fs.readFileSync(NOTIFIABLE_AUTHORS_PATH, 'utf8');
+      notifiableAuthors = JSON.parse(data);
+      console.log('Notifiable authors loaded:', notifiableAuthors);
+    } else {
+      notifiableAuthors = [];
+      console.log('No notifiable authors file found, starting with an empty list.');
+    }
+  } catch (error) {
+    console.error('Failed to load notifiable authors:', error);
+    notifiableAuthors = []; // Reset to empty list on error
+  }
+}
+
+async function saveNotifiableAuthors() {
+  try {
+    await fs.promises.writeFile(NOTIFIABLE_AUTHORS_PATH, JSON.stringify(notifiableAuthors, null, 2), 'utf8');
+    console.log('Notifiable authors saved.');
+  } catch (error) {
+    console.error('Failed to save notifiable authors:', error);
+  }
+}
