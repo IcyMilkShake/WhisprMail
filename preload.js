@@ -36,5 +36,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
     // Optionally, return a rejected promise or throw an error for invalid channels
     return Promise.reject(new Error(`Invalid invoke channel: ${channel}`));
+  },
+  onEmailDataForFullView: (callback) => {
+    const validChannel = 'email-data-for-full-view';
+    // ipcRenderer.on wraps the original event, but we only want to pass data to the final callback
+    const listener = (event, ...args) => callback(...args);
+    ipcRenderer.on(validChannel, listener);
+    // Return a cleanup function
+    return () => {
+      ipcRenderer.removeListener(validChannel, listener);
+    };
+  },
+  removeAllEmailDataListeners: () => {
+    ipcRenderer.removeAllListeners('email-data-for-full-view');
   }
 });
