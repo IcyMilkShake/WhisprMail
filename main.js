@@ -813,28 +813,15 @@ function createEnhancedNotificationHTML(emailData) {
   `;
 
   // Process body text
-  const plainBodyForDisplay = notificationData.body || 'No preview available';
-  let isPlainFallbackLong = false;
-  if (!notificationData.bodyHtml && plainBodyForDisplay.length > 2000) { // Check length of plain text
-      isPlainFallbackLong = true;
-  }
+  // const plainBodyForDisplay = notificationData.body || 'No preview available'; // Original line
+  // let isPlainFallbackLong = false; // Removed
+  // if (!notificationData.bodyHtml && plainBodyForDisplay.length > 2000) { // Check length of plain text // Removed
+  //     isPlainFallbackLong = true; // Removed
+  // } // Removed
 
-  let emailBodyDisplayHTML;
-  if (notificationData.bodyHtml) {
-    const sandboxRules = "allow-popups allow-scripts allow-same-origin";
-    emailBodyDisplayHTML = `
-      <div class="body-html-container" style="height: 200px; max-height: 200px; overflow: hidden; background-color: #fff; border: 1px solid #eee; border-radius: 4px;">
-        <iframe
-          srcdoc="${notificationData.bodyHtml.replace(/"/g, '&quot;')}" /* IFRAME_BASE_CSS removed */
-          style="width: 100%; height: 100%; border: none;"
-          sandbox="${sandboxRules}"
-        ></iframe>
-      </div>
-    `;
-  } else {
-    // Fallback to plain text
-    emailBodyDisplayHTML = `<div class="body-text" style="max-height: 200px; overflow-y: auto; padding: 8px; background-color: #fff; border: 1px solid #eee; border-radius: 4px;">${plainBodyForDisplay}</div>`;
-  }
+  // Always display plain text in notifications, escaping HTML characters
+  const plainBodyForDisplay = (notificationData.body || 'No body content available.').replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const emailBodyDisplayHTML = `<div class="body-text">${plainBodyForDisplay}</div>`;
 
   const finalHTML = `
     <!DOCTYPE html>
@@ -1289,7 +1276,6 @@ function createEnhancedNotificationHTML(emailData) {
             </div>
             <div class="subject">${notificationData.subject || 'No Subject'}</div>
             ${emailBodyDisplayHTML}
-            ${isPlainFallbackLong ? '<div class="long-content-indicator">📄 Long email - click to view full content in main app</div>' : ''}
           </div>
         </div>
         ${attachmentsHTML}
