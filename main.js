@@ -133,6 +133,62 @@ app.whenReady().then(async () => {
   }
 });
 
+ipcMain.on('show-full-email-in-main-window', async (event, messageId) => {
+  console.log(`Received request to show full email for messageId: ${messageId}`);
+
+  if (!mainWindow) {
+    console.error('Main window is not available to display the email.');
+    return;
+  }
+
+  try {
+    const emailDetails = await getEmailDetails(messageId);
+
+    if (emailDetails && emailDetails.bodyHtml) {
+      // Ensure IFRAME_BASE_CSS is defined and accessible in this scope
+      // (it's a global constant in main.js)
+      mainWindow.webContents.send('display-email-in-modal', {
+        html: emailDetails.bodyHtml,
+        css: IFRAME_BASE_CSS, // Send the base CSS along with the HTML
+        subject: emailDetails.subject // Also send subject to potentially set as modal title
+      });
+
+      // Bring main window to front and focus
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      mainWindow.show(); // Shows and focuses the window.
+      // mainWindow.focus(); // mainWindow.show() usually handles focus too.
+    } else if (emailDetails && !emailDetails.bodyHtml && emailDetails.body) {
+      // If HTML body is missing, but plain text body exists
+      console.warn(`No HTML body for messageId ${messageId}, sending plain text wrapped in <pre>`);
+      const plainTextHtml = `<pre style="white-space: pre-wrap; font-family: sans-serif;">${emailDetails.body.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>`;
+      mainWindow.webContents.send('display-email-in-modal', {
+        html: plainTextHtml,
+        css: IFRAME_BASE_CSS, // Still send base CSS for consistency of the pre tag
+        subject: emailDetails.subject
+      });
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+    } else {
+      console.error(`Could not fetch email details or HTML body for messageId: ${messageId}`);
+      // Optionally, inform the main window's renderer process about the error
+      mainWindow.webContents.send('display-email-in-modal-error', {
+        error: `Could not load content for email ID ${messageId}.`
+      });
+       if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show(); // Show window even on error to display message
+    }
+  } catch (error) {
+    console.error(`Error processing 'show-full-email-in-main-window' for ${messageId}:`, error);
+    mainWindow.webContents.send('display-email-in-modal-error', {
+      error: `Error loading email ID ${messageId}: ${error.message}`
+    });
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+  }
+});
+
 app.on('window-all-closed', () => {
   stopMonitoring();
   if (process.platform !== 'darwin') app.quit();
@@ -797,15 +853,19 @@ function createEnhancedNotificationHTML(emailData) {
 
   const quickActionsHTML = `
     <div class="quick-actions">
-      <button class="quick-btn mark-as-read" data-message-id="${emailData.id}">
+      <button class="quick-btn view-full-email" data-message-id="${emailData.id}" title="View full email in app">
+        <span class="btn-icon">👁️</span>
+        <span class="btn-text">View Full</span>
+      </button>
+      <button class="quick-btn mark-as-read" data-message-id="${emailData.id}" title="Mark as read">
         <span class="btn-icon">✓</span>
         <span class="btn-text">Mark Read</span>
       </button>
-      <button class="quick-btn trash" data-message-id="${emailData.id}">
+      <button class="quick-btn trash" data-message-id="${emailData.id}" title="Move to trash">
         <span class="btn-icon">🗑️</span>
         <span class="btn-text">Delete</span>
       </button>
-      <button class="quick-btn star" data-message-id="${emailData.id}">
+      <button class="quick-btn star" data-message-id="${emailData.id}" title="Star email">
         <span class="btn-icon">⭐</span>
         <span class="btn-text">Star</span>
       </button>
@@ -1187,6 +1247,11 @@ function createEnhancedNotificationHTML(emailData) {
           color: white;
         }
 
+        .quick-btn.view-full-email:hover {
+          background: #3498db; /* A nice blue color */
+          color: white;
+        }
+
         .btn-icon {
           font-size: 14px;
         }
@@ -1321,13 +1386,23 @@ function createEnhancedNotificationHTML(emailData) {
             e.stopPropagation(); 
             const messageId = btn.dataset.messageId;
             console.log('[NOTIF SCRIPT DEBUG] messageId from button dataset:', messageId);
-            const action = btn.classList.contains('mark-as-read') ? 'mark-as-read' :
-                          btn.classList.contains('trash') ? 'move-to-trash' :
-                          btn.classList.contains('star') ? 'snooze-email' : '';
-            
-            console.log(\`[Notification LOG] Quick action button clicked. Action: \${action}, Message ID: \${messageId}\`);
 
-            btn.style.transform = 'scale(0.95)';
+            if (btn.classList.contains('view-full-email')) {
+            console.log(\`[Notification LOG] 'View Full Email' button clicked for messageId: \${messageId}\`);
+
+              // Send a message to main process to show this email in the main window's modal
+              window.electronAPI.send('show-full-email-in-main-window', messageId); // New IPC channel
+              // Optionally, close this notification after clicking "View Full Email"
+              // closeNotification(); // Or window.electronAPI?.send('close-notification');
+            } else {
+              // Existing logic for other quick actions (mark-as-read, trash, star)
+              const action = btn.classList.contains('mark-as-read') ? 'mark-as-read' :
+                            btn.classList.contains('trash') ? 'move-to-trash' :
+                            btn.classList.contains('star') ? 'snooze-email' : '';
+
+              console.log(\`[Notification LOG] Quick action button clicked. Action: \${action}\`, Message ID: \${messageId}\`);
+
+              btn.style.transform = 'scale(0.95)';
             btn.style.opacity = '0.7';
             
             try {
@@ -1359,9 +1434,10 @@ function createEnhancedNotificationHTML(emailData) {
                 btn.style.color = 'white';
               }
               console.log('[Notification LOG] Action processed, closing notification in 5 mins for debug.');
-              setTimeout(() => closeNotification(), 60000); 
+              setTimeout(() => closeNotification(), 300000); // 300000ms = 5 minutes
             } catch (error) {
-              console.error(\`[Notification LOG] Error during action  for messageId:\`, error);
+              // ... existing error handling logic ...
+              console.error(\`[Notification LOG] Error during action for messageId:\`, error);
               btn.innerHTML = '<span class="btn-icon">✗</span><span class="btn-text">Error</span>';
               btn.style.background = '#ef4444';
               btn.style.color = 'white';
@@ -1370,7 +1446,8 @@ function createEnhancedNotificationHTML(emailData) {
                 btn.style.opacity = '';
               }, 2000);
               console.log('[Notification LOG] Error occurred during action, closing notification in 5 mins for debug.');
-              setTimeout(() => closeNotification(), 60000);
+              setTimeout(() => closeNotification(), 300000); // 5 minutes
+            }
             }
           });
         });
