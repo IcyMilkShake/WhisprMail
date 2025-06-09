@@ -27,6 +27,7 @@ const viewAllBtn = document.getElementById('viewAllBtn');
 const emailPreviewModal = document.getElementById('emailPreviewModal');
 const closeEmailPreviewModal = document.getElementById('closeEmailPreviewModal');
 const emailPreviewFrame = document.getElementById('emailPreviewFrame');
+const emailPreviewTitle = document.getElementById('emailPreviewTitle');
 
 // IFRAME_BASE_CSS (copied from main.js for now, will be ideally passed via IPC)
 // THIS IS A TEMPORARY SOLUTION. Ideally, this CSS should be fetched from main.js or defined in a shared way.
@@ -382,6 +383,36 @@ window.addEventListener('beforeunload', () => {
 });
 
 // --- NOTIFIABLE AUTHORS UI LOGIC ---
+
+// Listener for displaying email content in the modal
+window.gmail.on('display-email-in-modal', (event, emailData) => {
+  if (emailPreviewFrame && emailPreviewModal && emailPreviewTitle) {
+    console.log('Received email data for modal:', emailData.subject);
+    const cssToUse = emailData.css || IFRAME_BASE_CSS; // IFRAME_BASE_CSS is already defined in renderer.js
+    emailPreviewFrame.srcdoc = cssToUse + emailData.html;
+    emailPreviewTitle.textContent = emailData.subject || 'Email Preview';
+    emailPreviewModal.style.display = 'block';
+  } else {
+    console.error('Email preview modal elements not found in renderer.js');
+  }
+});
+
+// Listener for handling errors when trying to display email in modal
+window.gmail.on('display-email-in-modal-error', (event, errorData) => {
+  if (emailPreviewFrame && emailPreviewModal && emailPreviewTitle) {
+    console.error('Received error for email modal:', errorData.error);
+    emailPreviewTitle.textContent = 'Error Loading Email';
+    // Display error message directly in the iframe for simplicity, or use showNotification
+    emailPreviewFrame.srcdoc = `<div style="padding: 20px; font-family: sans-serif; color: red;">
+                                 <h3>Could not load email content:</h3>
+                                 <p>${errorData.error.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>
+                               </div>`;
+    emailPreviewModal.style.display = 'block';
+  } else {
+    // Fallback if modal elements aren't found, though unlikely
+    showNotification(errorData.error || 'Failed to load email in preview.', 'error');
+  }
+});
 
 function renderNotifiableAuthorsList(authors) {
   notifiableAuthorsListUL.innerHTML = ''; // Clear existing list items
