@@ -1822,6 +1822,54 @@ ipcMain.handle('update-settings', (event, newSettings) => {
 
 ipcMain.handle('get-settings', () => settings);
 
+// Make sure IFRAME_BASE_CSS is accessible in this scope.
+// It's already defined globally in main.js, so it should be fine.
+
+ipcMain.handle('get-latest-email-html', async () => {
+  if (!gmail) {
+    try {
+      await initializeGmail();
+    } catch (e) {
+      console.error("Gmail init failed in get-latest-email-html:", e);
+      return { success: false, error: 'Gmail initialization failed. Cannot fetch email.' };
+    }
+  }
+  if (!gmail) {
+    return { success: false, error: 'Gmail is not available.' };
+  }
+
+  try {
+    const newEmails = await getNewEmails(); // Fetches unread emails
+    if (!newEmails || newEmails.length === 0) {
+      return { success: false, error: 'No unread emails found.' };
+    }
+
+    // Get the most recent unread email (first in the list)
+    const latestEmailMeta = newEmails[0];
+    if (!latestEmailMeta || !latestEmailMeta.id) {
+        return { success: false, error: 'Could not identify the latest email.' };
+    }
+
+    const emailDetails = await getEmailDetails(latestEmailMeta.id);
+
+    if (!emailDetails) {
+      return { success: false, error: 'Failed to fetch details for the latest email.' };
+    }
+
+    if (emailDetails.bodyHtml && emailDetails.bodyHtml.trim() !== '') {
+      return { success: true, html: emailDetails.bodyHtml, css: IFRAME_BASE_CSS };
+    } else {
+      // If there's no HTML body, we could opt to send plain text instead,
+      // or indicate that HTML view is not available.
+      // For this feature, mimicking Gmail implies HTML.
+      return { success: false, error: 'Latest email has no HTML content to display. You can view its plain text in notifications.' };
+    }
+  } catch (error) {
+    console.error('Error fetching latest email HTML for preview:', error);
+    return { success: false, error: 'An error occurred while retrieving email content: ' + error.message };
+  }
+});
+
 // --- NOTIFIABLE AUTHORS IPC HANDLERS ---
 ipcMain.handle('get-notifiable-authors', () => {
   return notifiableAuthors;
