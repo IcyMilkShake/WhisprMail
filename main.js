@@ -825,7 +825,7 @@ function createEnhancedNotificationHTML(emailData) {
     emailBodyDisplayHTML = `
       <div class="body-html-container" style="height: 200px; max-height: 200px; overflow: hidden; background-color: #fff; border: 1px solid #eee; border-radius: 4px;">
         <iframe
-          srcdoc="${IFRAME_BASE_CSS}${notificationData.bodyHtml.replace(/"/g, '&quot;')}"
+          srcdoc="${notificationData.bodyHtml.replace(/"/g, '&quot;')}" /* IFRAME_BASE_CSS removed */
           style="width: 100%; height: 100%; border: none;"
           sandbox="${sandboxRules}"
         ></iframe>
