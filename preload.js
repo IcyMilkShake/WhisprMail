@@ -97,6 +97,40 @@ contextBridge.exposeInMainWorld('gmail', {
 
 console.log('[Preload] Gmail API exposed to renderer.');
 
+// Define channels for electronAPI (for notification windows)
+const validNotificationInvokeChannels = [
+  'download-attachment',
+  'mark-as-read',
+  'move-to-trash',
+  'snooze-email'
+];
+
+const validNotificationSendChannels = [
+  'show-full-email-in-main-window',
+  'focus-main-window',
+  'close-notification'
+];
+
+// Expose electronAPI for notification windows
+contextBridge.exposeInMainWorld('electronAPI', {
+  invoke: (channel, ...args) => {
+    if (validNotificationInvokeChannels.includes(channel)) {
+      return ipcRenderer.invoke(channel, ...args);
+    }
+    console.warn(`[Preload - electronAPI] Attempted to invoke invalid channel: ${channel}`);
+    return Promise.reject(new Error(`Invalid invoke channel for electronAPI: ${channel}`));
+  },
+  send: (channel, ...args) => {
+    if (validNotificationSendChannels.includes(channel)) {
+      ipcRenderer.send(channel, ...args);
+    } else {
+      console.warn(`[Preload - electronAPI] Attempted to send on invalid channel: ${channel}`);
+    }
+  }
+});
+
+console.log('[Preload] electronAPI exposed for notification windows.');
+
 // It's important to also consider the preload script for the notification windows.
 // The `createEnhancedNotificationHTML` function in `main.js` defines its own preload for `window.electronAPI`.
 // That preload should expose:
