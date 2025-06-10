@@ -27,6 +27,7 @@ let isMonitoring = false;
 let knownEmailIds = new Set();
 let monitoringStartTime = null;
 let activeNotifications = new Set(); // Track active notification windows
+let openEmailViewWindows = new Set();
 
 // User settings
 let settings = {
@@ -134,64 +135,130 @@ app.whenReady().then(async () => {
 });
 
 ipcMain.on('show-full-email-in-main-window', async (event, messageId) => {
-  console.log(`Received request to show full email for messageId: ${messageId}`);
-
-  if (!mainWindow) {
-    console.error('Main window is not available to display the email.');
-    return;
-  }
-
+  console.log(`IPC: Request to open email ID ${messageId} in a new window.`);
   try {
     const emailDetails = await getEmailDetails(messageId);
 
-    if (emailDetails && emailDetails.bodyHtml) {
-      // Ensure IFRAME_BASE_CSS is defined and accessible in this scope
-      // (it's a global constant in main.js)
-      mainWindow.webContents.send('display-email-in-modal', {
-        html: emailDetails.bodyHtml,
-        css: IFRAME_BASE_CSS, // Send the base CSS along with the HTML
-        subject: emailDetails.subject // Also send subject to potentially set as modal title
-      });
-
-      // Bring main window to front and focus
-      if (mainWindow.isMinimized()) {
-        mainWindow.restore();
-      }
-      mainWindow.show(); // Shows and focuses the window.
-      // mainWindow.focus(); // mainWindow.show() usually handles focus too.
-    } else if (emailDetails && !emailDetails.bodyHtml && emailDetails.body) {
-      // If HTML body is missing, but plain text body exists
-      console.warn(`No HTML body for messageId ${messageId}, sending plain text wrapped in <pre>`);
-      const plainTextHtml = `<pre style="white-space: pre-wrap; font-family: sans-serif;">${emailDetails.body.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>`;
-      mainWindow.webContents.send('display-email-in-modal', {
-        html: plainTextHtml,
-        css: IFRAME_BASE_CSS, // Still send base CSS for consistency of the pre tag
-        subject: emailDetails.subject
-      });
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show();
+    if (emailDetails && (emailDetails.bodyHtml || emailDetails.body)) {
+      // Data to pass to the new window creation function
+      const viewData = {
+        subject: emailDetails.subject || 'Email Preview',
+        bodyHtml: emailDetails.bodyHtml, // Will be primary
+        bodyText: emailDetails.body    // Fallback if bodyHtml is empty
+      };
+      // Call a function (to be implemented in next step) that creates the new window
+      createAndShowEmailWindow(viewData);
     } else {
-      console.error(`Could not fetch email details or HTML body for messageId: ${messageId}`);
-      // Optionally, inform the main window's renderer process about the error
-      mainWindow.webContents.send('display-email-in-modal-error', {
-        error: `Could not load content for email ID ${messageId}.`
-      });
-       if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show(); // Show window even on error to display message
+      console.error(`Could not fetch sufficient details for emailId: ${messageId} to display in new window.`);
+      // Optionally, could show a main process dialog error:
+      // dialog.showErrorBox('Error', `Could not load content for email ID ${messageId}.`);
     }
   } catch (error) {
-    console.error(`Error processing 'show-full-email-in-main-window' for ${messageId}:`, error);
-    mainWindow.webContents.send('display-email-in-modal-error', {
-      error: `Error loading email ID ${messageId}: ${error.message}`
-    });
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
+    console.error(`Error processing 'show-full-email-in-main-window' for new window (ID ${messageId}):`, error);
+    // dialog.showErrorBox('Error', `Error loading email ID ${messageId}: ${error.message}`);
   }
 });
+
+// Placeholder for the function that will be fully defined in the next step
+// function createAndShowEmailWindow(viewData) { // Placeholder removed, new implementation below
+//   console.log(`Placeholder: Would create new window for subject: ${viewData.subject}`);
+// }
+
+function createAndShowEmailWindow(viewData) {
+  console.log(`Creating new email view window for subject: ${viewData.subject}`);
+
+  let contentToLoad = '';
+  if (viewData.bodyHtml) {
+    contentToLoad = viewData.bodyHtml;
+  } else if (viewData.bodyText) {
+    // If no HTML body, use plain text wrapped in <pre> for basic formatting.
+    // Escape HTML characters in plain text to prevent misinterpretation.
+    const escapedBodyText = viewData.bodyText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    contentToLoad = `<pre style="white-space: pre-wrap; word-wrap: break-word; font-family: sans-serif;">${escapedBodyText}</pre>`;
+  } else {
+    contentToLoad = '<p>No content available for this email.</p>';
+  }
+
+  // Replace special characters in srcdoc to avoid breaking the HTML attribute.
+  // Primarily " and &, but also ' can be problematic.
+  const iframeSrcDoc = contentToLoad
+    .replace(/"/g, '&quot;')
+    .replace(/&/g, '&amp;') // Must be done after other entities that use & if they exist
+    .replace(/'/g, '&#39;');
+
+
+  // Construct the HTML for the new window. This HTML will contain an iframe.
+  // No IFRAME_BASE_CSS is injected here.
+  const newWindowHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <title>${viewData.subject.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</title>
+      <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
+        iframe { width: 100%; height: 100%; border: none; }
+      </style>
+    </head>
+    <body>
+      <iframe srcdoc="${iframeSrcDoc}" sandbox="allow-popups allow-same-origin allow-scripts"></iframe>
+
+    </body>
+    </html>
+  `;
+  // Note on sandbox: "allow-scripts" is included as Gmail content can have legitimate (sanitized) scripts.
+  // "allow-same-origin" is needed for many things to work if the email tries to use it, though srcdoc has a null origin.
+  // Consider if "allow-forms" is needed if emails often contain forms.
+
+  const emailViewWindow = new BrowserWindow({
+    width: 800,
+    height: 700,
+    title: viewData.subject || 'Email Preview',
+    webPreferences: {
+      // No nodeIntegration or contextIsolation needed for this simple view if not interacting with Node.js APIs from its content.
+      // Default webPreferences are generally safer.
+      // Ensure `webviewTag` is false if not used, `nodeIntegration` is false, `contextIsolation` is true.
+      // For a window loading remote-ish content (even via srcdoc), keep defaults:
+      nodeIntegration: false,
+      contextIsolation: true,
+      webSecurity: true, // Important
+      // No preload script needed unless we want to expose specific APIs to this window.
+    },
+    show: false // Don't show immediately, wait for content to be ready (or nearly)
+  });
+
+  // Add to our set
+  openEmailViewWindows.add(emailViewWindow);
+
+  // Handle window closure
+  emailViewWindow.on('closed', () => {
+    console.log(`Email view window for subject "${viewData.subject}" closed.`);
+    openEmailViewWindows.delete(emailViewWindow);
+  });
+
+  // Load the HTML content using a data URL
+  emailViewWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(newWindowHtml)}`);
+
+  emailViewWindow.once('ready-to-show', () => {
+    emailViewWindow.show();
+  });
+
+  // Optional: Open DevTools for this new window for debugging
+  // emailViewWindow.webContents.openDevTools();
+}
 
 app.on('window-all-closed', () => {
   stopMonitoring();
   if (process.platform !== 'darwin') app.quit();
+});
+
+// Also, ensure that when the main app quits, these windows are closed.
+app.on('before-quit', () => {
+  openEmailViewWindows.forEach(win => {
+    if (win && !win.isDestroyed()) {
+      win.close();
+    }
+  });
 });
 
 app.on('activate', () => {
