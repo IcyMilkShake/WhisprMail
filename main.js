@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Notification, shell, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, shell, screen, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { google } = require('googleapis');
@@ -665,8 +665,27 @@ function createCustomNotification(emailData) {
   // Track this notification
   activeNotifications.add(notificationWindow);
   
-  // Remove from tracking when closed
+  // Handle focus to register DevTools shortcut
+  notificationWindow.on('focus', () => {
+    console.log('Notification window focused. Registering DevTools shortcut.');
+    globalShortcut.register('CommandOrControl+Shift+I', () => {
+      console.log('DevTools shortcut pressed for focused notification.');
+      if (notificationWindow && !notificationWindow.isDestroyed()) {
+        notificationWindow.webContents.openDevTools({ mode: 'detach' });
+      }
+    });
+  });
+
+  // Handle blur to unregister DevTools shortcut
+  notificationWindow.on('blur', () => {
+    console.log('Notification window blurred. Unregistering DevTools shortcut.');
+    globalShortcut.unregister('CommandOrControl+Shift+I');
+  });
+
+  // Remove from tracking when closed and unregister shortcut
   notificationWindow.on('closed', () => {
+    console.log('Notification window closed. Unregistering DevTools shortcut if active.');
+    globalShortcut.unregister('CommandOrControl+Shift+I');
     activeNotifications.delete(notificationWindow);
     repositionNotifications();
   });
