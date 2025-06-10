@@ -1455,7 +1455,7 @@ function createEnhancedNotificationHTML(emailData) {
             console.log('[NOTIF SCRIPT DEBUG] messageId from button dataset:', messageId);
 
             if (btn.classList.contains('view-full-email')) {
-              console.log(`[Notification LOG] 'View Full Email' button clicked for messageId: ${messageId}`);
+              console.log(\`[Notification LOG] 'View Full Email' button clicked for messageId: \${messageId}\`);
               // Send a message to main process to show this email in the main window's modal
               window.electronAPI.send('show-full-email-in-main-window', messageId); // New IPC channel
               // Optionally, close this notification after clicking "View Full Email"
@@ -1466,7 +1466,7 @@ function createEnhancedNotificationHTML(emailData) {
                             btn.classList.contains('trash') ? 'move-to-trash' :
                             btn.classList.contains('star') ? 'snooze-email' : '';
 
-              console.log(`[Notification LOG] Quick action button clicked. Action: ${action}, Message ID: ${messageId}`);
+              console.log(\`[Notification LOG] Quick action button clicked. Action: \${action}, Message ID: \${messageId}\`);
 
               btn.style.transform = 'scale(0.95)';
             btn.style.opacity = '0.7';
@@ -1503,7 +1503,7 @@ function createEnhancedNotificationHTML(emailData) {
               setTimeout(() => closeNotification(), 300000); // 300000ms = 5 minutes
             } catch (error) {
               // ... existing error handling logic ...
-              console.error(`[Notification LOG] Error during action for messageId:`, error);
+              console.error(\`[Notification LOG] Error during action for messageId:\`, error);
               btn.innerHTML = '<span class="btn-icon">✗</span><span class="btn-text">Error</span>';
               btn.style.background = '#ef4444';
               btn.style.color = 'white';
