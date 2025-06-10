@@ -301,10 +301,13 @@ function showNotification(message, type = 'info') {
 }
 
 // Event listeners
-window.gmail.onEmailCountUpdate((event, count) => {
-  countNumber.textContent = count;
-  
-  // Add a subtle animation when count updates
+// New way to listen for email count updates
+const cleanupEmailCountUpdate = window.gmail.on('email-count-update', (count) => {
+  // The 'event' object is stripped by the preload wrapper, so 'count' is the first argument
+  if (countNumber) {
+    countNumber.textContent = count;
+
+    // Add a subtle animation when count updates
   countNumber.style.transform = 'scale(1.1)';
   setTimeout(() => {
     countNumber.style.transform = 'scale(1)';
@@ -379,7 +382,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // Cleanup on unload
 window.addEventListener('beforeunload', () => {
-  window.gmail.removeAllListeners();
+  // window.gmail.removeAllListeners(); // This will now cause an error as it's not exposed
+  if (typeof cleanupEmailCountUpdate === 'function') {
+    cleanupEmailCountUpdate();
+  }
+  // If other .on listeners are added, their cleanup functions should be called here too.
 });
 
 // --- NOTIFIABLE AUTHORS UI LOGIC ---
