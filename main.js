@@ -241,6 +241,7 @@ function createAndShowEmailWindow(viewData) {
 
   emailViewWindow.once('ready-to-show', () => {
     emailViewWindow.show();
+    emailViewWindow.focus(); // Add this line
   });
 
   // Optional: Open DevTools for this new window for debugging
