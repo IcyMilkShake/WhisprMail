@@ -312,6 +312,7 @@ const cleanupEmailCountUpdate = window.gmail.on('email-count-update', (count) =>
   setTimeout(() => {
     countNumber.style.transform = 'scale(1)';
   }, 200);
+}
 });
 
 // Initialize when DOM is loaded
