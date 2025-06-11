@@ -184,10 +184,7 @@ function createAndShowEmailWindow(viewData) {
 
   // Replace special characters in srcdoc to avoid breaking the HTML attribute.
   // Primarily " and &, but also ' can be problematic.
-  const iframeSrcDoc = combinedContent
-    .replace(/"/g, '&quot;')
-    .replace(/&/g, '&amp;') // Must be done after other entities that use & if they exist
-    .replace(/'/g, '&#39;');
+  const iframeSrcDoc = combinedContent.replace(/"/g, '&quot;');
 
 
   // Construct the HTML for the new window. This HTML will contain an iframe.
