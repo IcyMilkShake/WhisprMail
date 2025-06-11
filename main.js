@@ -179,16 +179,19 @@ function createAndShowEmailWindow(viewData) {
     contentToLoad = '<p>No content available for this email.</p>';
   }
 
+  // Combine base CSS with the email content
+  const combinedContent = IFRAME_BASE_CSS + contentToLoad;
+
   // Replace special characters in srcdoc to avoid breaking the HTML attribute.
   // Primarily " and &, but also ' can be problematic.
-  const iframeSrcDoc = contentToLoad
+  const iframeSrcDoc = combinedContent
     .replace(/"/g, '&quot;')
     .replace(/&/g, '&amp;') // Must be done after other entities that use & if they exist
     .replace(/'/g, '&#39;');
 
 
   // Construct the HTML for the new window. This HTML will contain an iframe.
-  // No IFRAME_BASE_CSS is injected here.
+  // IFRAME_BASE_CSS is now injected via combinedContent into iframeSrcDoc.
   const newWindowHtml = `
     <!DOCTYPE html>
     <html>
