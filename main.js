@@ -791,7 +791,7 @@ function closeNotificationWithAnimation(notificationWindow) {
 const IFRAME_BASE_CSS = `
       <style>
         body {
-          margin: 10px;
+          margin: 0; /* MODIFIED */
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
           font-size: 14px;
           line-height: 1.5;
