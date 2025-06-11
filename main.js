@@ -791,7 +791,7 @@ function closeNotificationWithAnimation(notificationWindow) {
 const IFRAME_BASE_CSS = `
       <style>
         body {
-          margin: 10px;
+          margin: 0; /* MODIFIED */
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
           font-size: 14px;
           line-height: 1.5;
@@ -859,8 +859,7 @@ const IFRAME_BASE_CSS = `
             padding-left: 20px;
         }
 
-        /* Reset outlines to prevent browser default focus rings */
-        div, h1, h2, h3, h4, h5, h6, p, span, li, td, th, a, img, figure, article, section, header, footer, nav, aside, button, input, select, textarea, label {
+        * {
           outline: none !important;
           outline-style: none !important; /* Be explicit */
           -moz-outline-style: none !important; /* Firefox specific if needed */
