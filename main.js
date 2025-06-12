@@ -858,12 +858,6 @@ const IFRAME_BASE_CSS = `
         ul, ol {
             padding-left: 20px;
         }
-
-        * {
-          outline: none !important;
-          outline-style: none !important; /* Be explicit */
-          -moz-outline-style: none !important; /* Firefox specific if needed */
-        }
       </style>
     `;
 
