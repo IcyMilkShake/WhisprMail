@@ -831,7 +831,7 @@ const IFRAME_BASE_CSS = `
           /* word-wrap and overflow-wrap on table itself might be less effective than on cells */
         }
         td, th {
-          border: 1px solid #ddd;
+          border: none; /* MODIFIED */
           padding: 8px;
           text-align: left;
           word-wrap: break-word;   /* Still important for content within cells */
