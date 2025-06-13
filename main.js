@@ -807,16 +807,12 @@ const IFRAME_BASE_CSS = `
         }
         a {
           color: #1a73e8;
-          text-decoration: none;
         }
         a:hover {
-          text-decoration: underline;
         }
         img {
           max-width: 100%; /* No !important. Allows inline style to override for wider images. */
           height: auto;    /* No !important. */
-          display: block;
-          margin: 5px 0;
         }
         p, div, li, blockquote {
             word-wrap: break-word;
@@ -827,23 +823,13 @@ const IFRAME_BASE_CSS = `
           width: auto;         /* Let table determine its own width based on content */
                            /* Remove max-width: 100% if tables are meant to scroll horizontally */
           border-collapse: collapse;
-          margin-bottom: 1em;
           /* word-wrap and overflow-wrap on table itself might be less effective than on cells */
         }
         td, th {
           border: none; /* MODIFIED */
-          padding: 8px;
-          text-align: left;
           word-wrap: break-word;   /* Still important for content within cells */
           overflow-wrap: break-word;
           min-width: 0;          /* Still useful for flexible columns */
-        }
-        blockquote {
-            border-left: 3px solid #ccc;
-            padding-left: 10px;
-            margin-left: 5px;
-            color: #555;
-            /* word-wrap and overflow-wrap are now handled by the p, div, li, blockquote rule */
         }
         pre {
           white-space: pre-wrap;
@@ -856,7 +842,6 @@ const IFRAME_BASE_CSS = `
           box-sizing: border-box;
         }
         ul, ol {
-            padding-left: 20px;
         }
 
         * {
