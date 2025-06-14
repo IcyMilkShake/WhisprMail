@@ -839,6 +839,7 @@ const IFRAME_BASE_CSS = `
           overflow-wrap: break-word;
           box-sizing: border-box;
           overflow-x: auto; 
+          outline: none !important;
         }
         a {
           color: #7289DA; /* --accent-purple */
