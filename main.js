@@ -1855,12 +1855,7 @@ async function checkForNewEmails() {
               if (settings.speakSubject && notificationData.subject) {
                 voiceMsgParts.push(`Subject: ${notificationData.subject}.`);
               }
-
-              // ADD THIS: Include the email body/description
-              if (notificationData.body) {
-                voiceMsgParts.push(`Description: ${notificationData.body}.`);
-              }
-
+              
               if (voiceMsgParts.length > 0) {
                 const voiceMsg = voiceMsgParts.join(' ');
                 say.speak(voiceMsg);
