@@ -275,10 +275,79 @@ function createEnhancedNotificationHTML(emailData, settings, urgencyFromEmailDet
         <button class="close-btn" onclick="window.electronAPI.send('close-notification')">×</button>
       </div>
       <script>
-        // Script for handling clicks will be part of createCustomNotification's webContents setup
-        // Or, if that proves too complex, can be partially here with more generic IPC calls.
-        // For now, keeping it simple and assuming main process sets up detailed listeners.
-        // The close button above directly uses an IPC send for simplicity in this HTML string.
+        // Script for handling clicks in the notification window.
+        // It communicates back to the main process via IPC channels exposed by preload.js.
+
+        const attachmentItems = document.querySelectorAll('.attachment-item');
+        attachmentItems.forEach(item => {
+          item.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            item.style.transform = 'scale(0.95)';
+            setTimeout(() => { item.style.transform = ''; }, 150);
+            try {
+              await window.electronAPI.invoke('download-attachment', item.dataset.messageId, item.dataset.attachmentId, item.dataset.filename);
+            } catch (error) {
+              console.error('Error invoking download-attachment from notification:', error);
+            }
+          });
+        });
+
+        const quickButtons = document.querySelectorAll('.quick-btn');
+        quickButtons.forEach(btn => {
+          btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const messageId = btn.dataset.messageId;
+            const action = btn.classList.contains('view-full-email') ? 'show-full-email-in-main-window' :
+                           btn.classList.contains('mark-as-read') ? 'mark-as-read' :
+                           btn.classList.contains('trash') ? 'move-to-trash' :
+                           btn.classList.contains('star') ? 'snooze-email' : ''; // 'snooze-email' corresponds to 'star' action
+
+            if (!action) return;
+
+            btn.style.transform = 'scale(0.95)';
+            btn.style.opacity = '0.7';
+
+            try {
+              if (action === 'show-full-email-in-main-window') {
+                window.electronAPI.send(action, messageId); // One-way to main
+                 // Optionally, close this notification after clicking "View Full Email"
+                 // window.electronAPI.send('close-notification');
+              } else { // For actions expecting a response or UI update based on success
+                const result = await window.electronAPI.invoke(action, messageId);
+                if (result && result.success) {
+                  if (action !== 'snooze-email') { // Star/snooze updates its own text/icon based on state
+                     btn.innerHTML = '<span class="btn-icon">✓</span><span class="btn-text">Done</span>';
+                  }
+                  // Visual feedback for starred state is handled by the invoke's response in main.js
+                  btn.style.background = '#10b981'; // General success indication
+                  btn.style.color = 'white';
+                } else {
+                  btn.innerHTML = '<span class="btn-icon">✗</span><span class="btn-text">Failed</span>';
+                  btn.style.background = '#ef4444';
+                  btn.style.color = 'white';
+                }
+              }
+            } catch (error) {
+              console.error(\`Error invoking action '\${action}' for messageId \${messageId} from notification:\`, error);
+              btn.innerHTML = '<span class="btn-icon">✗</span><span class="btn-text">Error</span>';
+              btn.style.background = '#ef4444';
+              btn.style.color = 'white';
+            }
+            // Do not automatically close notification here; main process can decide or user can via X button.
+          });
+        });
+
+        // Handle general notification click to focus main window (if not clicking a button/attachment/close)
+        document.body.addEventListener('click', (e) => {
+          if (!e.target.closest('.quick-btn') && !e.target.closest('.attachment-item') && !e.target.closest('.close-btn')) {
+            window.electronAPI.send('focus-main-window');
+            // Optional: close this notification after focusing main window
+            // window.electronAPI.send('close-notification');
+          }
+        });
+
+        // Prevent context menu in notification
+        document.addEventListener('contextmenu', e => e.preventDefault());
       </script>
     </body>
     </html>

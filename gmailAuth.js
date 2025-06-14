@@ -3,7 +3,6 @@ const path = require('path');
 const { google } = require('googleapis');
 const http = require('http');
 const { URL } = require('url'); // Added for createAuthServer
-// const open = require('open').default || require('open'); // Changed to dynamic import below
 
 // --- CONSTANTS ---
 const SCOPES = [

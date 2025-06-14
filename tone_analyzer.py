@@ -6,7 +6,7 @@ Maintains exact same interface as original but uses Hugging Face AI
 
 import sys
 import json
-import os
+# import os # Unused import
 
 def load_ai_classifier():
     """Loads the Hugging Face zero-shot-classification pipeline."""

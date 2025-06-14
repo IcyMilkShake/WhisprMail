@@ -132,9 +132,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
 console.log('[Preload] electronAPI exposed for notification windows.');
 
-// It's important to also consider the preload script for the notification windows.
-// The `createEnhancedNotificationHTML` function in `main.js` defines its own preload for `window.electronAPI`.
-// That preload should expose:
-// window.electronAPI.send('channel', ...args) -> ipcRenderer.send('channel', ...args)
-// window.electronAPI.invoke('channel', ...args) -> ipcRenderer.invoke('channel', ...args)
-// The errors provided are from the main renderer.js, so this subtask focuses on the main preload.js.
+// This preload script (preload.js) is used by both the main window
+// and the notification windows created by notificationService.js,
+// as notificationService.js specifies path.join(__dirname, 'preload.js').

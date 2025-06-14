@@ -64,17 +64,16 @@ function executePythonScript(scriptName, scriptArgs = [], inputText = null, time
 
 // --- TEXT ANALYSIS FUNCTIONS ---
 async function summarizeText(text) {
-  console.log("Summarizing text via Python script...");
+  // console.log("Summarizing text via Python script..."); // Removed for quieter logs
   if (!text || text.trim().length < 100) {
-    console.log("Text too short or empty for summarization, returning original.");
+    // console.log("Text too short or empty for summarization, returning original."); // Kept as it indicates a specific behavior
     return text;
   }
 
-  // Calls the local executePythonScript
   return executePythonScript('summarizer.py', [], text)
     .then(result => {
       if (result && result.success && result.summary_text) {
-        console.log("Summarization successful via Python script.");
+        // console.log("Summarization successful via Python script."); // Removed
         return result.summary_text;
       } else {
         console.error(`Error or invalid response from summarizer.py: ${result?.error || 'Unknown error'}`);
@@ -88,12 +87,11 @@ async function summarizeText(text) {
 }
 
 async function detectEmotionalTone(text) {
-  console.log("Analyzing email tone via Python script for:", text.substring(0, 100) + "...");
-  // Calls the local executePythonScript
+  // console.log("Analyzing email tone via Python script for:", text.substring(0, 100) + "..."); // Removed
   return executePythonScript('tone_analyzer.py', [], text)
     .then(result => {
       if (result && result.success && result.label && result.urgency) {
-        console.log("Tone analysis successful via Python script:", result);
+        // console.log("Tone analysis successful via Python script:", result); // Removed
         return {
           label: result.label,
           score: parseFloat(result.score) || 0.5,
@@ -121,11 +119,10 @@ async function detectEmotionalTone(text) {
 
 // --- OCR FUNCTION ---
 function runPythonOCR(imageBase64) {
-  // Calls the local executePythonScript
   return executePythonScript('ocr_processor.py', ['ocr', imageBase64])
     .then(result => {
       if (result && result.success) {
-        console.log("OCR processing successful via Python script.");
+        // console.log("OCR processing successful via Python script."); // Removed
         return result;
       } else {
         console.error(`OCR script returned success:false or error: ${result?.error}`);
