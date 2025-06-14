@@ -169,6 +169,7 @@ app.on('activate', () => {
 // processEmailContent has been moved to emailService.js
 // getEmailDetails, captureEmailWithPuppeteer, processEmailWithOCR, and estimateReadTime are moved to emailProcessingOrchestrator.js
 
+
 // --- NOTIFICATION DISPLAY & MANAGEMENT ---
 // createCustomNotification, formatFileSize, getAttachmentIcon,
 // repositionNotifications, closeNotificationWithAnimation, createEnhancedNotificationHTML
@@ -231,6 +232,7 @@ const IFRAME_BASE_CSS = `
         }
       </style>
     `;
+
 // NOTE: Duplicated versions of summarizeText, detectEmotionalTone, fallbackUrgencyDetection,
 // and estimateReadTime have been removed.
 // Their definitions are consolidated elsewhere in the file (using executePythonScript or under UTILITY FUNCTIONS).
