@@ -6,9 +6,6 @@ let checkIntervalId = null;
 // To store dependencies injected from main.js
 let dependencies = {
   gmail: null,
-  // settings: null, // Settings will be fetched by the orchestrator directly
-  mainWindow: null,
-  // notifiableAuthors: null, // Not directly used by monitoringService, but by the callback it calls
   emailService: null,
   processNewEmailIdCallback: null,
   updateEmailCountCallback: null,
@@ -17,9 +14,6 @@ let dependencies = {
 // Initialize the service with dependencies from main.js
 function init(deps) {
   dependencies.gmail = deps.gmail;
-  // dependencies.settings = deps.settings; // No longer storing settings directly
-  dependencies.mainWindow = deps.mainWindow;
-  // dependencies.notifiableAuthors = deps.notifiableAuthors; // No longer storing notifiableAuthors directly
   dependencies.emailService = deps.emailService;
   dependencies.processNewEmailIdCallback = deps.processNewEmailIdCallback;
   dependencies.updateEmailCountCallback = deps.updateEmailCountCallback;

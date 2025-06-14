@@ -37,6 +37,7 @@ let oAuth2Client;
 // isMonitoring, knownEmailIds, monitoringStartTime moved to monitoringService.js
 // activeNotifications has been moved to notificationService.js
 // openEmailViewWindows is now managed by mainUIService.js
+// getEmailDetails and estimateReadTime are now in emailProcessingOrchestrator.js
 
 // User settings - will be initialized from settingsService
 let settings = {};
@@ -104,9 +105,11 @@ app.whenReady().then(async () => {
         gmail: gmail,
         emailService: emailService,
         processNewEmailIdCallback: emailProcessingOrchestrator.processNewEmailId,
-        updateEmailCountCallback: updateEmailCountCallback,
-        // mainWindow and settings are not directly needed by monitoringService itself now
-        // It also doesn't need notifiableAuthors or a direct settings reference
+        updateEmailCountCallback: updateEmailCountCallback
+        // mainWindow, settings, and notifiableAuthors are not directly passed to monitoringService.
+        // The callbacks (processNewEmailIdCallback, updateEmailCountCallback) handle interactions with those if needed.
+        // emailProcessingOrchestrator (used by processNewEmailIdCallback) gets settings and authors from their respective services.
+        // updateEmailCountCallback uses the mainWindow closure.
       });
 
       // Initialize Main UI Service
@@ -140,7 +143,6 @@ ipcMain.on('show-full-email-in-main-window', async (event, messageId) => {
 });
 
 app.on('window-all-closed', () => {
-  // stopMonitoring(); // This should be called by monitoringService if it has a cleanup, or handled by app exit
   if (monitoringService && typeof monitoringService.stopMonitoring === 'function') {
     monitoringService.stopMonitoring();
   }
@@ -577,4 +579,4 @@ ipcMain.handle('get-iframe-base-css', () => {
   return IFRAME_BASE_CSS;
 });
 
-// TEMPORARY EXPORT FOR TESTING
+// No temporary exports needed.

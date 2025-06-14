@@ -4,8 +4,8 @@ let settings = {
   enableVoiceReading: true,
   showUrgency: true,
   enableReadTime: true,
-  speakSenderName: true, // <-- ADD THIS LINE
-  speakSubject: true     // <-- ADD THIS LINE
+  speakSenderName: true,
+  speakSubject: true
 };
 
 // UI Elements
@@ -19,10 +19,9 @@ const stopBtn = document.getElementById('stopBtn');
 const checkBtn = document.getElementById('checkBtn');
 const notifiableAuthorEmailInput = document.getElementById('notifiableAuthorEmailInput');
 const addNotifiableAuthorBtn = document.getElementById('addNotifiableAuthorBtn');
-const notifiableAuthorsListUL = document.getElementById('notifiableAuthorsList'); // Renamed for clarity
+const notifiableAuthorsListUL = document.getElementById('notifiableAuthorsList');
 const noNotifiableAuthorsMsg = document.getElementById('noNotifiableAuthorsMsg');
 
-// At the top of renderer.js, add new UI element references
 const viewAllBtn = document.getElementById('viewAllBtn');
 const emailPreviewModal = document.getElementById('emailPreviewModal');
 const closeEmailPreviewModal = document.getElementById('closeEmailPreviewModal');
@@ -109,13 +108,13 @@ function updateUI() {
 function updateSettingsUI() {
   document.getElementById('summaryToggle').checked = settings.enableSummary;
   document.getElementById('voiceToggle').checked = settings.enableVoiceReading;
-  document.getElementById('urgencyToggle').checked = settings.showUrgency; // Add this line
-  document.getElementById('readTimeToggle').checked = settings.enableReadTime; // <-- ADD THIS LINE
-  document.getElementById('speakSenderNameToggle').checked = settings.speakSenderName; // <-- ADD THIS LINE
-  document.getElementById('speakSubjectToggle').checked = settings.speakSubject;   // <-- ADD THIS LINE
+  document.getElementById('urgencyToggle').checked = settings.showUrgency;
+  document.getElementById('readTimeToggle').checked = settings.enableReadTime;
+  document.getElementById('speakSenderNameToggle').checked = settings.speakSenderName;
+  document.getElementById('speakSubjectToggle').checked = settings.speakSubject;
 
   // Additionally, enable/disable sub-toggles based on voiceToggle state
-  const voiceToggleState = document.getElementById('voiceToggle').checked; // Corrected variable name
+  const voiceToggleState = document.getElementById('voiceToggle').checked;
   document.getElementById('speakSenderNameToggle').disabled = !voiceToggleState;
   document.getElementById('speakSubjectToggle').disabled = !voiceToggleState;
 }
@@ -321,19 +320,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
   
   document.getElementById('summaryToggle').addEventListener('change', debouncedSave);
-  // document.getElementById('voiceToggle').addEventListener('change', debouncedSave); // Original listener removed/modified below
   document.getElementById('urgencyToggle').addEventListener('change', debouncedSave);
   document.getElementById('readTimeToggle').addEventListener('change', debouncedSave); 
-  document.getElementById('speakSenderNameToggle').addEventListener('change', debouncedSave); // <-- ADD THIS LINE
-  document.getElementById('speakSubjectToggle').addEventListener('change', debouncedSave);   // <-- ADD THIS LINE
+  document.getElementById('speakSenderNameToggle').addEventListener('change', debouncedSave);
+  document.getElementById('speakSubjectToggle').addEventListener('change', debouncedSave);
 
   document.getElementById('voiceToggle').addEventListener('change', () => {
-    // Update the settings object directly for immediate reflection in updateSettingsUI
     settings.enableVoiceReading = document.getElementById('voiceToggle').checked;
-    // Update UI (this will handle disabling/enabling sub-toggles)
-    updateSettingsUI();
-    // Trigger save for all settings
-    debouncedSave();
+    updateSettingsUI(); // Update UI, which handles disabling/enabling sub-toggles
+    debouncedSave(); // Trigger save for all settings
   });
   
   // Keyboard shortcuts
