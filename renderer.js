@@ -4,8 +4,9 @@ let settings = {
   enableVoiceReading: true,
   showUrgency: true,
   enableReadTime: true,
-  speakSenderName: true, // <-- ADD THIS LINE
-  speakSubject: true     // <-- ADD THIS LINE
+  speakSenderName: true, 
+  speakSubject: true,
+  viewEmailPreference: 'appWindow' // Added new setting
 };
 
 // UI Elements
@@ -33,30 +34,53 @@ if (viewAllBtn) {
   viewAllBtn.addEventListener('click', async () => {
     setLoading(viewAllBtn, true);
     try {
-      // In the next step, 'get-latest-email-html' IPC handler in main.js will be created.
-      // For now, we expect it to return an object: { success: true, html: '...', css: '...' } or { success: false, error: '...' }
-      const result = await window.gmail.invoke('get-latest-email-html'); // Using invoke as it's a new handler
+      // Expects result: { success: true, html: '...', css: '...', messageId: '...' } or { success: false, error: '...' }
+      const result = await window.gmail.invoke('get-latest-email-html');
 
-      if (result && result.success && result.html) {
-        // If CSS is also passed from main.js, use result.css.
-        const cssToUse = result.css; // IFRAME_BASE_CSS was removed
-        if (!cssToUse) {
-          console.warn("No CSS provided from main process for email preview. Email might not render correctly.");
-          showNotification("Preview CSS missing, content might look unstyled.", "warning");
+      if (result && result.success) {
+        // Check user preference for viewing email
+        if (settings.viewEmailPreference === 'gmail') {
+          if (result.messageId) {
+            // This IPC handler 'open-email-in-gmail' will be created in the next step
+            await window.gmail.invoke('open-email-in-gmail', result.messageId);
+            // Close the modal, in case it was opened by a previous action or state
+            emailPreviewModal.style.display = 'none'; 
+            emailPreviewFrame.srcdoc = ''; 
+          } else {
+            showNotification('Could not open in Gmail: Email ID is missing.', 'error');
+            // Fallback: if messageId is missing, try to display in modal if HTML is available
+            if (result.html) {
+              const cssToUse = result.css;
+              if (!cssToUse) console.warn("No CSS provided for email preview (Gmail fallback).");
+              emailPreviewFrame.srcdoc = (cssToUse || "") + result.html;
+              emailPreviewModal.style.display = 'block';
+            } else {
+              showNotification('No content available to display.', 'info');
+              emailPreviewFrame.srcdoc = '';
+            }
+          }
+        } else { // Default to 'appWindow' or any other preference
+          if (result.html) {
+            const cssToUse = result.css;
+            if (!cssToUse) console.warn("No CSS provided for email preview (app window).");
+            emailPreviewFrame.srcdoc = (cssToUse || "") + result.html;
+            emailPreviewModal.style.display = 'block';
+          } else {
+            showNotification('No HTML content found for preview.', 'info');
+            emailPreviewFrame.srcdoc = ''; 
+          }
         }
-        emailPreviewFrame.srcdoc = (cssToUse || "") + result.html; // Use empty string if cssToUse is undefined
-        emailPreviewModal.style.display = 'block';
       } else if (result && result.error) {
         showNotification(result.error, 'error');
-        emailPreviewFrame.srcdoc = ''; // Clear frame on error
+        emailPreviewFrame.srcdoc = ''; 
       } else {
-        showNotification('No email content found or an unknown error occurred.', 'info');
-        emailPreviewFrame.srcdoc = ''; // Clear frame
+        showNotification('No email content found or an unknown error occurred when fetching for View All.', 'info');
+        emailPreviewFrame.srcdoc = ''; 
       }
     } catch (error) {
-      console.error('Error fetching latest email HTML:', error);
-      showNotification('Failed to fetch email preview: ' + error.message, 'error');
-      emailPreviewFrame.srcdoc = ''; // Clear frame on critical error
+      console.error('Error in View All button click listener:', error);
+      showNotification('Failed to process View All request: ' + error.message, 'error');
+      emailPreviewFrame.srcdoc = ''; 
     } finally {
       setLoading(viewAllBtn, false);
     }
@@ -112,6 +136,18 @@ function updateSettingsUI() {
   const voiceToggleState = document.getElementById('voiceToggle').checked; 
   document.getElementById('speakSenderNameToggle').disabled = !voiceToggleState;
   document.getElementById('speakSubjectToggle').disabled = !voiceToggleState;
+
+  // Update View Email Preference toggle switches
+  const viewInAppWindowToggle = document.getElementById('viewInAppWindowToggle');
+  const viewInGmailToggle = document.getElementById('viewInGmailToggle');
+
+  if (settings.viewEmailPreference === 'gmail') {
+    viewInGmailToggle.checked = true;
+    viewInAppWindowToggle.checked = false;
+  } else { // Default to 'appWindow'
+    viewInAppWindowToggle.checked = true;
+    viewInGmailToggle.checked = false;
+  }
 }
 
 function setLoading(element, loading) {
@@ -151,9 +187,16 @@ async function saveSettings() {
     settings.enableSummary = summaryToggle.checked;
     settings.enableVoiceReading = voiceToggle.checked;
     settings.showUrgency = urgencyToggle.checked; // Add this
-    settings.enableReadTime = readTimeToggle.checked; // <-- ADD THIS LINE
-    settings.speakSenderName = speakSenderNameToggle.checked; // <-- ADD THIS LINE
-    settings.speakSubject = speakSubjectToggle.checked;     // <-- ADD THIS LINE
+    settings.enableReadTime = readTimeToggle.checked; 
+    settings.speakSenderName = speakSenderNameToggle.checked; 
+    settings.speakSubject = speakSubjectToggle.checked;     
+
+    // Save View Email Preference from the two toggle switches
+    if (document.getElementById('viewInGmailToggle').checked) {
+      settings.viewEmailPreference = 'gmail';
+    } else { // If Gmail is not checked, App Window must be the preference
+      settings.viewEmailPreference = 'appWindow';
+    }
     
     await window.gmail.updateSettings(settings);
     showSuccessFlash(document.querySelector('.settings-panel'));
@@ -316,8 +359,37 @@ document.addEventListener('DOMContentLoaded', async () => {
   // document.getElementById('voiceToggle').addEventListener('change', debouncedSave); // Original listener removed/modified below
   document.getElementById('urgencyToggle').addEventListener('change', debouncedSave);
   document.getElementById('readTimeToggle').addEventListener('change', debouncedSave); 
-  document.getElementById('speakSenderNameToggle').addEventListener('change', debouncedSave); // <-- ADD THIS LINE
-  document.getElementById('speakSubjectToggle').addEventListener('change', debouncedSave);   // <-- ADD THIS LINE
+  document.getElementById('speakSenderNameToggle').addEventListener('change', debouncedSave); 
+  document.getElementById('speakSubjectToggle').addEventListener('change', debouncedSave);   
+
+  // Event listeners for the two new mutually exclusive toggle switches
+  const viewInAppWindowToggle = document.getElementById('viewInAppWindowToggle');
+  const viewInGmailToggle = document.getElementById('viewInGmailToggle');
+
+  viewInAppWindowToggle.addEventListener('change', () => {
+    if (viewInAppWindowToggle.checked) {
+      viewInGmailToggle.checked = false;
+    } else {
+      // Prevent unchecking if it's the only one checked (i.e., Gmail is also unchecked)
+      // This ensures at least one option is always selected.
+      if (!viewInGmailToggle.checked) {
+        viewInAppWindowToggle.checked = true; 
+      }
+    }
+    debouncedSave();
+  });
+
+  viewInGmailToggle.addEventListener('change', () => {
+    if (viewInGmailToggle.checked) {
+      viewInAppWindowToggle.checked = false;
+    } else {
+      // Prevent unchecking if it's the only one checked
+      if (!viewInAppWindowToggle.checked) {
+        viewInGmailToggle.checked = true;
+      }
+    }
+    debouncedSave();
+  });
 
   document.getElementById('voiceToggle').addEventListener('change', () => {
     // Update the settings object directly for immediate reflection in updateSettingsUI
