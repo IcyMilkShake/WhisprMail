@@ -102,6 +102,13 @@
     .status-section { /* This wraps status-display and email-count */
       padding: 20px; /* Padding for the section containing status elements */
     }
+
+    .status-display { /* Added flex properties for centering */
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
     
     /* Status Display already covered by .glass-card like styling */
     .status-icon {
@@ -626,6 +633,39 @@
             </div>
             <label class="toggle">
               <input type="checkbox" id="readTimeToggle" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <!-- Sub-heading for Email View Preference -->
+          <div style="padding: 10px 0 5px 0; color: var(--main-text); font-size: 16px; font-weight: bold; border-bottom: 1px solid var(--border-color); margin-bottom: 5px;">
+            View Emails Using:
+          </div>
+
+          <!-- App Window Toggle -->
+          <div class="setting-item">
+            <div class="setting-info">
+              <div class="setting-label" style="font-size: 13px;">
+                <span>🖥️</span> App Window
+              </div>
+              <div class="setting-description" style="font-size: 11px;">View emails in a new window within this application.</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="viewInAppWindowToggle">
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <!-- Gmail Toggle -->
+          <div class="setting-item">
+            <div class="setting-info">
+              <div class="setting-label" style="font-size: 13px;">
+                <span>🌐</span> Gmail
+              </div>
+              <div class="setting-description" style="font-size: 11px;">View emails directly in the Gmail web application.</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="viewInGmailToggle">
               <span class="slider"></span>
             </label>
           </div>

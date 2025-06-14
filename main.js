@@ -37,7 +37,8 @@ let settings = {
   speakSenderName: true, // <-- ADD THIS LINE
   speakSubject: true,    // <-- ADD THIS LINE
   huggingfaceToken: process.env.HUGGINGFACE_TOKEN, // Retain from .env
-  showUrgency: true
+  showUrgency: true,
+  viewEmailPreference: 'appWindow' // Default to opening in app window
 };
 
 // --- PYTHON SCRIPT EXECUTION HELPER ---
@@ -142,6 +143,7 @@ ipcMain.on('show-full-email-in-main-window', async (event, messageId) => {
     if (emailDetails && (emailDetails.bodyHtml || emailDetails.body)) {
       // Data to pass to the new window creation function
       const viewData = {
+        id: emailDetails.id, // Ensure messageId is passed to viewData
         subject: emailDetails.subject || 'Email Preview',
         bodyHtml: emailDetails.bodyHtml, // Will be primary
         bodyText: emailDetails.body    // Fallback if bodyHtml is empty
@@ -165,6 +167,22 @@ ipcMain.on('show-full-email-in-main-window', async (event, messageId) => {
 // }
 
 function createAndShowEmailWindow(viewData) {
+  console.log(`Attempting to show email. Subject: ${viewData.subject}, ID: ${viewData.id}, Preference: ${settings.viewEmailPreference}`);
+
+  // Check preference and if messageId is available for Gmail link
+  if (settings.viewEmailPreference === 'gmail') {
+    if (viewData.id) {
+      const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${viewData.id}`;
+      console.log(`Opening email in Gmail: ${gmailUrl}`);
+      shell.openExternal(gmailUrl);
+      return; // Exit function, no app window needed
+    } else {
+      console.error('Cannot open in Gmail: messageId (viewData.id) is missing. Falling back to app window.');
+      // Proceed to open in app window as a fallback
+    }
+  }
+
+  // Proceed to open in app window if preference is 'appWindow' or if Gmail opening failed due to missing ID
   console.log(`Creating new email view window for subject: ${viewData.subject}`);
 
   let contentToLoad = '';
@@ -1949,6 +1967,22 @@ function stopMonitoring() {
 }
 
 // --- IPC HANDLERS ---
+ipcMain.handle('open-email-in-gmail', async (event, messageId) => {
+  if (!messageId) {
+    console.error('Error opening email in Gmail: No messageId provided.');
+    return { success: false, error: 'No messageId provided' };
+  }
+  try {
+    const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${messageId}`;
+    await shell.openExternal(gmailUrl);
+    console.log(`Successfully opened email ${messageId} in Gmail.`);
+    return { success: true };
+  } catch (error) {
+    console.error(`Error opening email ${messageId} in Gmail:`, error);
+    return { success: false, error: `Failed to open email in Gmail: ${error.message}` };
+  }
+});
+
 ipcMain.handle('check-new-mail', async () => {
   if (!gmail) try { await initializeGmail(); } catch (e) { console.error("Gmail init failed in check-new-mail:", e); return 0; }
   if (!gmail) return 0;

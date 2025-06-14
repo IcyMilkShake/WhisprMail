@@ -28,6 +28,7 @@ const validInvokeChannels = [
   'add-notifiable-author',
   'remove-notifiable-author',
   'get-latest-email-html', // Used by main window's "View All" button to populate modal
+  'open-email-in-gmail', // Added for opening email in Gmail via View All button
   // Channels for quick actions in notifications, if they were to be invoked from main renderer (currently not the case)
   // 'mark-as-read',
   // 'move-to-trash',
