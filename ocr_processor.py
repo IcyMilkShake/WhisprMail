@@ -3,35 +3,11 @@ import json
 import base64
 from PIL import Image
 import pytesseract
-# Removed hardcoded Tesseract path: pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+# Tesseract path is assumed to be in PATH or configured via environment variables.
 import io
-import requests
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-import time
 
-def setup_chrome_driver():
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--window-size=1920,1080")
-    return webdriver.Chrome(options=chrome_options)
-
-def capture_email_content(email_url):
-    driver = setup_chrome_driver()
-    try:
-        driver.get(email_url)
-        time.sleep(3)  # Wait for content to load
-        
-        # Take screenshot of email content area
-        email_body = driver.find_element(By.TAG_NAME, "body")
-        screenshot = email_body.screenshot_as_png
-        
-        return screenshot
-    finally:
-        driver.quit()
+# setup_chrome_driver and capture_email_content are removed as Puppeteer is used in Node.js.
+# Unused imports requests, selenium, time have been removed.
 
 def extract_text_from_image(image_data):
     try:

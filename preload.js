@@ -28,6 +28,7 @@ const validInvokeChannels = [
   'add-notifiable-author',
   'remove-notifiable-author',
   'get-latest-email-html', // Used by main window's "View All" button to populate modal
+  'get-iframe-base-css', // Added for fetching base CSS for iframe
   // Channels for quick actions in notifications, if they were to be invoked from main renderer (currently not the case)
   // 'mark-as-read',
   // 'move-to-trash',

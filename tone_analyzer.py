@@ -9,17 +9,18 @@ import json
 import os
 
 def load_ai_classifier():
-    """Load the AI model with proper error handling"""
+    """Loads the Hugging Face zero-shot-classification pipeline."""
     try:
         from transformers import pipeline
-        print("Loading AI model... (this may take a moment on first run)", file=sys.stderr)
+        # This print statement is useful for users to know about the one-time download.
+        print("Loading AI model... (this may take a moment on first run if model needs downloading)", file=sys.stderr)
         
         classifier = pipeline(
             "zero-shot-classification",
-            model="facebook/bart-large-mnli",
-            device=-1  # CPU
+            model="facebook/bart-large-mnli", # Specifies the model
+            device=-1  # Ensures CPU usage, -1 is for CPU, 0 for GPU if available
         )
-        print("Device set to use cpu", file=sys.stderr)
+        print("AI model loaded successfully using CPU.", file=sys.stderr)
         return classifier
     except ImportError:
         print("Error: transformers not installed. Run: pip install transformers torch", file=sys.stderr)
@@ -29,14 +30,17 @@ def load_ai_classifier():
         return None
 
 def analyze_with_ai(text, classifier):
-    """Analyze text with AI and return in original format"""
+    """
+    Analyzes the input text using the AI classifier to determine urgency and sentiment.
+    Uses a rule-based approach on top of AI classification outputs.
+    """
+    # Define candidate labels for zero-shot classification
     urgency_labels = [
         "urgent and requires immediate action",
-        "important but not urgent", 
+        "important but not urgent",
         "normal routine communication",
         "not important or spam"
     ]
-    
     context_labels = [
         "emergency or crisis situation",
         "business deadline or time-sensitive",
@@ -46,60 +50,127 @@ def analyze_with_ai(text, classifier):
         "casual conversation",
         "marketing or promotional content"
     ]
-    
+
     try:
-        # Primary urgency classification
+        # Perform classifications
         urgency_result = classifier(text, urgency_labels)
         context_result = classifier(text, context_labels)
-        
-        top_urgency = urgency_result['labels'][0]
+
+        top_urgency_label = urgency_result['labels'][0]
         urgency_score = urgency_result['scores'][0]
-        top_context = context_result['labels'][0]
+        top_context_label = context_result['labels'][0]
         context_score = context_result['scores'][0]
+
+        # Define rules for determining urgency and sentiment
+        # Each rule is a dictionary. Conditions are evaluated with AND logic.
+        # The first rule that matches determines the output.
+        rules = [
+            {
+                "conditions": [
+                    ("urgency_label_contains", "urgent and requires immediate action"),
+                    ("urgency_score_gt", 0.6)
+                ],
+                "output": {"urgency_level": "high", "sentiment": "NEGATIVE"}
+            },
+            {
+                "conditions": [
+                    ("urgency_label_contains", "important but not urgent"),
+                    ("urgency_score_gt", 0.5)
+                ],
+                "output": {"urgency_level": "medium", "sentiment": "NEUTRAL"}
+            },
+            {
+                "conditions": [ # OR logic for context labels
+                    ("context_label_contains_any", ["emergency", "deadline"]),
+                    ("context_score_gt", 0.6)
+                ],
+                "output": {"urgency_level": "high", "sentiment": "NEGATIVE"}
+            },
+            { # Fallback for emergency/deadline if context_score is not high enough
+                "conditions": [
+                    ("context_label_contains_any", ["emergency", "deadline"])
+                    # No score condition here, or a lower one if desired.
+                    # This rule will only be hit if the one above doesn't match.
+                ],
+                "output": {"urgency_level": "medium", "sentiment": "NEUTRAL"}
+            },
+            {
+                "conditions": [
+                    ("context_label_contains_any", ["angry", "frustrated"])
+                    # Consider adding a context_score_gt threshold if needed
+                ],
+                "output": {"urgency_level": "medium", "sentiment": "NEGATIVE"}
+            },
+            {
+                "conditions": [
+                    ("context_label_contains_any", ["positive", "thankful"])
+                    # Consider adding a context_score_gt threshold
+                ],
+                "output": {"urgency_level": "low", "sentiment": "POSITIVE"}
+            },
+            {
+                "conditions": [ # OR for these conditions
+                    ("urgency_label_contains", "not important"),
+                    ("context_label_contains", "marketing")
+                ],
+                "condition_operator": "OR", # Specify OR logic for this rule's conditions
+                "output": {"urgency_level": "low", "sentiment": "NEUTRAL"}
+            }
+            # Default rule is handled after the loop if no rules match
+        ]
+
+        urgency_level = "low"  # Default urgency
+        sentiment = "NEUTRAL" # Default sentiment
+
+        # Evaluate rules
+        rule_matched = False
+        for rule in rules:
+            conditions_operator = rule.get("condition_operator", "AND")
+
+            evaluations = []
+            for condition_type, value in rule["conditions"]:
+                condition_met = False
+                if condition_type == "urgency_label_contains":
+                    condition_met = value in top_urgency_label
+                elif condition_type == "urgency_score_gt":
+                    condition_met = urgency_score > value
+                elif condition_type == "context_label_contains":
+                    condition_met = value in top_context_label
+                elif condition_type == "context_score_gt":
+                    condition_met = context_score > value
+                elif condition_type == "context_label_contains_any":
+                    condition_met = any(keyword in top_context_label for keyword in value)
+                evaluations.append(condition_met)
+
+            # Check if rule conditions are met based on the operator
+            if conditions_operator == "AND" and all(evaluations):
+                urgency_level = rule["output"]["urgency_level"]
+                sentiment = rule["output"]["sentiment"]
+                rule_matched = True
+                break
+            elif conditions_operator == "OR" and any(evaluations):
+                urgency_level = rule["output"]["urgency_level"]
+                sentiment = rule["output"]["sentiment"]
+                rule_matched = True
+                break
         
-        # Map to original format
-        if "urgent and requires immediate action" in top_urgency and urgency_score > 0.6:
-            urgency_level = "high"
-            sentiment = "NEGATIVE"  # Urgent usually means problems
-        elif "important but not urgent" in top_urgency and urgency_score > 0.5:
-            urgency_level = "medium"
-            sentiment = "NEUTRAL"
-        elif "emergency" in top_context or "deadline" in top_context:
-            if context_score > 0.6:
-                urgency_level = "high"
-                sentiment = "NEGATIVE"
-            else:
-                urgency_level = "medium"
-                sentiment = "NEUTRAL"
-        elif "angry" in top_context or "frustrated" in top_context:
-            urgency_level = "medium"
-            sentiment = "NEGATIVE"
-        elif "positive" in top_context or "thankful" in top_context:
-            urgency_level = "low"
-            sentiment = "POSITIVE"
-        elif "marketing" in top_context or "not important" in top_urgency:
-            urgency_level = "low"
-            sentiment = "NEUTRAL"
-        else:
-            # Default based on confidence
+        if not rule_matched: # Fallback if no specific rules were matched
             if urgency_score > 0.7:
                 urgency_level = "medium"
-                sentiment = "NEUTRAL"
-            else:
-                urgency_level = "low"
-                sentiment = "NEUTRAL"
-        
+                # sentiment remains NEUTRAL (default)
+            # else urgency_level remains "low" (default)
+
         return {
             "success": True,
             "label": sentiment,
-            "score": float(urgency_score),
+            "score": float(urgency_score), # Base score remains urgency_score
             "urgency": urgency_level,
-            "reason": f"AI: '{top_urgency}' ({urgency_score:.1%}), Context: '{top_context}' ({context_score:.1%})",
+            "reason": f"AI Classification: Urgency '{top_urgency_label}' ({urgency_score:.1%}), Context '{top_context_label}' ({context_score:.1%})",
             "primary_emotion_detected": sentiment.lower(),
-            "all_emotions_detected": [sentiment.lower()],
+            "all_emotions_detected": [sentiment.lower()], # Simplified for now
             "device_used": "ai_huggingface",
-            "analysis_source": "facebook/bart-large-mnli",
-            "context_type": top_context,
+            "analysis_source": "facebook/bart-large-mnli", # Or your model
+            "context_type": top_context_label,
             "text_length": len(text)
         }
         

@@ -29,49 +29,34 @@ const closeEmailPreviewModal = document.getElementById('closeEmailPreviewModal')
 const emailPreviewFrame = document.getElementById('emailPreviewFrame');
 const emailPreviewTitle = document.getElementById('emailPreviewTitle');
 
-// IFRAME_BASE_CSS (copied from main.js for now, will be ideally passed via IPC)
-// THIS IS A TEMPORARY SOLUTION. Ideally, this CSS should be fetched from main.js or defined in a shared way.
-const IFRAME_BASE_CSS = `
-      <style>
-        body {
-          margin: 10px;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
-          font-size: 14px;
-          line-height: 1.5;
-          color: #333;
-          background-color: #fff;
-          word-wrap: break-word;
-          overflow-wrap: break-word;
-          box-sizing: border-box;
-          overflow-x: auto;
-        }
-        a { color: #1a73e8; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        img { max-width: 100%; height: auto; display: block; margin: 5px 0; }
-        p, div, li, blockquote { word-wrap: break-word; overflow-wrap: break-word; }
-        table { table-layout: auto; width: auto; border-collapse: collapse; margin-bottom: 1em; }
-        td, th { border: 1px solid #ddd; padding: 8px; text-align: left; word-wrap: break-word; overflow-wrap: break-word; min-width: 0; }
-        blockquote { border-left: 3px solid #ccc; padding-left: 10px; margin-left: 5px; color: #555; }
-        pre { white-space: pre-wrap; word-wrap: break-word; overflow-x: auto; background: #f4f4f4; padding: 10px; border-radius: 4px; max-width: 100%; box-sizing: border-box; }
-        ul, ol { padding-left: 20px; }
-        div, h1, h2, h3, h4, h5, h6, p, span, li, td, th, a, img, figure, article, section, header, footer, nav, aside, button, input, select, textarea, label { outline: none !important; outline-style: none !important; -moz-outline-style: none !important; }
-      </style>
-    `;
+// IFRAME_BASE_CSS has been removed from here. It will be fetched from main.js.
 
 if (viewAllBtn) {
   viewAllBtn.addEventListener('click', async () => {
     setLoading(viewAllBtn, true);
     try {
-      // In the next step, 'get-latest-email-html' IPC handler in main.js will be created.
-      // For now, we expect it to return an object: { success: true, html: '...', css: '...' } or { success: false, error: '...' }
-      const result = await window.gmail.invoke('get-latest-email-html'); // Using invoke as it's a new handler
+      // Fetch email HTML content and base CSS concurrently
+      const [emailResult, iframeBaseCss] = await Promise.all([
+        window.gmail.invoke('get-latest-email-html'),
+        window.gmail.invoke('get-iframe-base-css')
+      ]);
 
-      if (result && result.success && result.html) {
-        // If CSS is also passed from main.js, use result.css. Otherwise, use the local IFRAME_BASE_CSS.
-        const cssToUse = result.css || IFRAME_BASE_CSS;
-        emailPreviewFrame.srcdoc = cssToUse + result.html;
+      if (!iframeBaseCss) {
+        console.error('Failed to fetch IFRAME_BASE_CSS from main process.');
+        showNotification('Error loading email preview: Could not load base styles.', 'error');
+        emailPreviewFrame.srcdoc = ''; // Clear frame
+        return; // Exit if base CSS is missing
+      }
+
+      if (emailResult && emailResult.success && emailResult.html) {
+        // CSS from get-latest-email-html (result.css) is for specific email styling (if any)
+        // IFRAME_BASE_CSS (iframeBaseCss) is the foundational style.
+        // The task implies IFRAME_BASE_CSS is the one to be fetched and used.
+        // If get-latest-email-html also returned a specific CSS for that email, it could be combined.
+        // For now, assuming iframeBaseCss is the primary one.
+        emailPreviewFrame.srcdoc = iframeBaseCss + emailResult.html;
         emailPreviewModal.style.display = 'block';
-      } else if (result && result.error) {
+      } else if (emailResult && emailResult.error) {
         showNotification(result.error, 'error');
         emailPreviewFrame.srcdoc = ''; // Clear frame on error
       } else {
@@ -272,31 +257,18 @@ function showNotification(message, type = 'info') {
   notification.textContent = message;
   document.body.appendChild(notification);
   
-  // Add slide-in animation
-  const style = document.createElement('style');
-  style.textContent = `
-    @keyframes slideInRight {
-      from { transform: translateX(100%); opacity: 0; }
-      to { transform: translateX(0); opacity: 1; }
-    }
-    @keyframes slideOutRight {
-      from { transform: translateX(0); opacity: 1; }
-      to { transform: translateX(100%); opacity: 0; }
-    }
-  `;
-  document.head.appendChild(style);
+  // Animations are now in a global stylesheet injected at DOMContentLoaded
   
-  // Auto-remove after 4 seconds
+  // Auto-remove notification element after 4 seconds
   setTimeout(() => {
-    notification.style.animation = 'slideOutRight 0.3s ease-in';
+    notification.style.animation = 'slideOutRight 0.3s ease-in forwards'; // Added 'forwards' to keep end state
+    // Wait for animation to finish before removing the element
     setTimeout(() => {
       if (notification.parentNode) {
         notification.parentNode.removeChild(notification);
       }
-      if (style.parentNode) {
-        style.parentNode.removeChild(style);
-      }
-    }, 300);
+      // The global style tag is no longer removed here
+    }, 300); // This timeout should match the animation duration
   }, 4000);
 }
 
@@ -317,6 +289,21 @@ const cleanupEmailCountUpdate = window.gmail.on('email-count-update', (count) =>
 
 // Initialize when DOM is loaded
 document.addEventListener('DOMContentLoaded', async () => {
+  // Inject global animation styles for notifications once
+  const globalNotificationStyles = document.createElement('style');
+  globalNotificationStyles.id = 'dynamic-notification-styles'; // Assign an ID
+  globalNotificationStyles.textContent = `
+    @keyframes slideInRight {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes slideOutRight {
+      from { transform: translateX(0); opacity: 1; }
+      to { transform: translateX(100%); opacity: 0; }
+    }
+  `;
+  document.head.appendChild(globalNotificationStyles);
+
   // Initial UI update
   updateUI();
   
@@ -393,13 +380,35 @@ window.addEventListener('beforeunload', () => {
 // --- NOTIFIABLE AUTHORS UI LOGIC ---
 
 // Listener for displaying email content in the modal
-window.gmail.on('display-email-in-modal', (event, emailData) => {
+window.gmail.on('display-email-in-modal', async (event, emailData) => { // Made async
   if (emailPreviewFrame && emailPreviewModal && emailPreviewTitle) {
     console.log('Received email data for modal:', emailData.subject);
-    const cssToUse = emailData.css || IFRAME_BASE_CSS; // IFRAME_BASE_CSS is already defined in renderer.js
-    emailPreviewFrame.srcdoc = cssToUse + emailData.html;
-    emailPreviewTitle.textContent = emailData.subject || 'Email Preview';
-    emailPreviewModal.style.display = 'block';
+    try {
+      const iframeBaseCss = await window.gmail.invoke('get-iframe-base-css');
+      if (!iframeBaseCss) {
+        console.error('Failed to fetch IFRAME_BASE_CSS for modal display.');
+        showNotification('Error displaying email: Could not load base styles.', 'error');
+        emailPreviewFrame.srcdoc = `<p>Error: Could not load styles.</p>`;
+        emailPreviewTitle.textContent = emailData.subject || 'Email Preview';
+        emailPreviewModal.style.display = 'block';
+        return;
+      }
+      // Assuming emailData.css is for specific email styles and iframeBaseCss is foundational.
+      // If emailData.css exists, it might be intended to be used *with* or *instead of* part of iframeBaseCss.
+      // For this task, we prioritize using the fetched iframeBaseCss.
+      // If emailData.html already includes necessary styling or if emailData.css is comprehensive,
+      // this logic might need adjustment. Current interpretation: iframeBaseCss + emailData.html.
+      const finalCss = emailData.css ? iframeBaseCss + emailData.css : iframeBaseCss; // Example of combining if needed
+      emailPreviewFrame.srcdoc = finalCss + emailData.html;
+      emailPreviewTitle.textContent = emailData.subject || 'Email Preview';
+      emailPreviewModal.style.display = 'block';
+    } catch (error) {
+      console.error('Error fetching IFRAME_BASE_CSS for modal:', error);
+      showNotification('Error displaying email: Failed to load styles. ' + error.message, 'error');
+      emailPreviewFrame.srcdoc = `<p>Error: ${error.message}</p>`;
+      emailPreviewTitle.textContent = emailData.subject || 'Email Preview';
+      emailPreviewModal.style.display = 'block';
+    }
   } else {
     console.error('Email preview modal elements not found in renderer.js');
   }
