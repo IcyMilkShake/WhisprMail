@@ -464,7 +464,12 @@ async function getEmailDetails(messageId) {
 
     console.log(`Processing email: "${subject}" from ${fromHeader}`);
 
-    const tone = await detectEmotionalTone(contentForAnalysis);
+    let tone;
+    if (settings.showUrgency) {
+      tone = await detectEmotionalTone(contentForAnalysis);
+    } else {
+      tone = { label: 'NEUTRAL', score: 0.0, urgency: 'low', analysis_source: 'disabled_setting' };
+    }
     const readTime = estimateReadTime(textContent);
 
     return {
@@ -477,7 +482,7 @@ async function getEmailDetails(messageId) {
       id: messageId,
       tone,
       readTime,
-      urgency: tone.urgency
+      urgency: tone.urgency // This will correctly use the tone object from the conditional logic
     };
   } catch (error) {
     console.error(`Error getting email details for ${messageId}:`, error);
