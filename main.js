@@ -2,7 +2,6 @@ const { app, BrowserWindow, ipcMain, Notification, shell, screen, globalShortcut
 const path = require('path');
 const fs = require('fs');
 const { google } = require('googleapis');
-// const open = require('open').default || require('open'); // Changed to dynamic import
 const http = require('http');
 const say = require('say');
 const { spawn } = require('child_process');
@@ -150,25 +149,18 @@ ipcMain.on('show-full-email-in-main-window', async (event, messageId) => {
       createAndShowEmailWindow(viewData);
     } else {
       console.error(`Could not fetch sufficient details for emailId: ${messageId} to display in new window.`);
-      // Optionally, could show a main process dialog error:
-      // dialog.showErrorBox('Error', `Could not load content for email ID ${messageId}.`);
     }
   } catch (error) {
     console.error(`Error processing 'show-full-email-in-main-window' for new window (ID ${messageId}):`, error);
-    // dialog.showErrorBox('Error', `Error loading email ID ${messageId}: ${error.message}`);
   }
 });
-
-// Placeholder for the function that will be fully defined in the next step
-// function createAndShowEmailWindow(viewData) { // Placeholder removed, new implementation below
-//   console.log(`Placeholder: Would create new window for subject: ${viewData.subject}`);
-// }
 
 function createAndShowEmailWindow(viewData) {
   console.log(`Creating new email view window for subject: ${viewData.subject}`);
 
   let contentToLoad = '';
   if (viewData.bodyHtml) {
+    console.log(viewData.bodyHtml)
     contentToLoad = viewData.bodyHtml;
   } else if (viewData.bodyText) {
     // If no HTML body, use plain text wrapped in <pre> for basic formatting.
@@ -215,16 +207,11 @@ function createAndShowEmailWindow(viewData) {
     height: 700,
     title: viewData.subject || 'Email Preview',
     webPreferences: {
-      // No nodeIntegration or contextIsolation needed for this simple view if not interacting with Node.js APIs from its content.
-      // Default webPreferences are generally safer.
-      // Ensure `webviewTag` is false if not used, `nodeIntegration` is false, `contextIsolation` is true.
-      // For a window loading remote-ish content (even via srcdoc), keep defaults:
       nodeIntegration: false,
       contextIsolation: true,
       webSecurity: true, // Important
-      // No preload script needed unless we want to expose specific APIs to this window.
     },
-    show: false // Don't show immediately, wait for content to be ready (or nearly)
+    show: false
   });
 
   // Add to our set
@@ -244,8 +231,6 @@ function createAndShowEmailWindow(viewData) {
     emailViewWindow.focus(); // Add this line
   });
 
-  // Optional: Open DevTools for this new window for debugging
-  // emailViewWindow.webContents.openDevTools();
 }
 
 app.on('window-all-closed', () => {
@@ -580,17 +565,12 @@ function runPythonOCR(imageBase64) {
         console.log("OCR processing successful via Python script.");
         return result; // Contains { success: true, text: "...", word_count: N }
       } else {
-        // This case handles when the script runs (exit 0, valid JSON) but reports an internal error.
         console.error(`OCR script returned success:false or error: ${result?.error}`);
         throw new Error(result?.error || 'OCR processing failed in Python script.');
       }
     })
     .catch(error => {
-      // This catches rejections from executePythonScript (spawn errors, timeouts, non-zero exits, JSON parse errors)
-      // OR errors thrown from the .then block above (e.g. result.success is false).
       console.error(`OCR script execution failed or script error: ${error.message}`);
-      // Re-throw to be handled by processEmailWithOCR or other callers.
-      // It's important that this function now consistently throws an error on failure.
       throw error;
     });
 }
@@ -936,15 +916,6 @@ function createEnhancedNotificationHTML(emailData) {
       </button>
     </div>
   `;
-
-  // Process body text
-  // const plainBodyForDisplay = notificationData.body || 'No preview available'; // Original line
-  // let isPlainFallbackLong = false; // Removed
-  // if (!notificationData.bodyHtml && plainBodyForDisplay.length > 2000) { // Check length of plain text // Removed
-  //     isPlainFallbackLong = true; // Removed
-  // } // Removed
-
-  // Always display plain text in notifications, escaping HTML characters
   const plainBodyForDisplay = (notificationData.body || 'No body content available.').replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const emailBodyDisplayHTML = `<div class="body-text">${plainBodyForDisplay}</div>`;
 
@@ -1854,11 +1825,6 @@ async function checkForNewEmails() {
 
               if (settings.speakSubject && notificationData.subject) {
                 voiceMsgParts.push(`Subject: ${notificationData.subject}.`);
-              }
-
-              // ADD THIS: Include the email body/description
-              if (notificationData.body) {
-                voiceMsgParts.push(`Description: ${notificationData.body}.`);
               }
 
               if (voiceMsgParts.length > 0) {
