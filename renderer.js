@@ -29,35 +29,6 @@ const closeEmailPreviewModal = document.getElementById('closeEmailPreviewModal')
 const emailPreviewFrame = document.getElementById('emailPreviewFrame');
 const emailPreviewTitle = document.getElementById('emailPreviewTitle');
 
-// IFRAME_BASE_CSS (copied from main.js for now, will be ideally passed via IPC)
-// THIS IS A TEMPORARY SOLUTION. Ideally, this CSS should be fetched from main.js or defined in a shared way.
-const IFRAME_BASE_CSS = `
-      <style>
-        body {
-          margin: 10px;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
-          font-size: 14px;
-          line-height: 1.5;
-          color: #333;
-          background-color: #fff;
-          word-wrap: break-word;
-          overflow-wrap: break-word;
-          box-sizing: border-box;
-          overflow-x: auto;
-        }
-        a { color: #1a73e8; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        img { max-width: 100%; height: auto; display: block; margin: 5px 0; }
-        p, div, li, blockquote { word-wrap: break-word; overflow-wrap: break-word; }
-        table { table-layout: auto; width: auto; border-collapse: collapse; margin-bottom: 1em; }
-        td, th { border: 1px solid #ddd; padding: 8px; text-align: left; word-wrap: break-word; overflow-wrap: break-word; min-width: 0; }
-        blockquote { border-left: 3px solid #ccc; padding-left: 10px; margin-left: 5px; color: #555; }
-        pre { white-space: pre-wrap; word-wrap: break-word; overflow-x: auto; background: #f4f4f4; padding: 10px; border-radius: 4px; max-width: 100%; box-sizing: border-box; }
-        ul, ol { padding-left: 20px; }
-        div, h1, h2, h3, h4, h5, h6, p, span, li, td, th, a, img, figure, article, section, header, footer, nav, aside, button, input, select, textarea, label { outline: none !important; outline-style: none !important; -moz-outline-style: none !important; }
-      </style>
-    `;
-
 if (viewAllBtn) {
   viewAllBtn.addEventListener('click', async () => {
     setLoading(viewAllBtn, true);
@@ -67,9 +38,13 @@ if (viewAllBtn) {
       const result = await window.gmail.invoke('get-latest-email-html'); // Using invoke as it's a new handler
 
       if (result && result.success && result.html) {
-        // If CSS is also passed from main.js, use result.css. Otherwise, use the local IFRAME_BASE_CSS.
-        const cssToUse = result.css || IFRAME_BASE_CSS;
-        emailPreviewFrame.srcdoc = cssToUse + result.html;
+        // If CSS is also passed from main.js, use result.css.
+        const cssToUse = result.css; // IFRAME_BASE_CSS was removed
+        if (!cssToUse) {
+          console.warn("No CSS provided from main process for email preview. Email might not render correctly.");
+          showNotification("Preview CSS missing, content might look unstyled.", "warning");
+        }
+        emailPreviewFrame.srcdoc = (cssToUse || "") + result.html; // Use empty string if cssToUse is undefined
         emailPreviewModal.style.display = 'block';
       } else if (result && result.error) {
         showNotification(result.error, 'error');
@@ -126,11 +101,15 @@ function updateSettingsUI() {
   document.getElementById('voiceToggle').checked = settings.enableVoiceReading;
   document.getElementById('urgencyToggle').checked = settings.showUrgency; // Add this line
   document.getElementById('readTimeToggle').checked = settings.enableReadTime; // <-- ADD THIS LINE
-  document.getElementById('speakSenderNameToggle').checked = settings.speakSenderName; // <-- ADD THIS LINE
-  document.getElementById('speakSubjectToggle').checked = settings.speakSubject;   // <-- ADD THIS LINE
+  document.getElementById('summaryToggle').checked = settings.enableSummary;
+  document.getElementById('voiceToggle').checked = settings.enableVoiceReading;
+  document.getElementById('urgencyToggle').checked = settings.showUrgency;
+  document.getElementById('readTimeToggle').checked = settings.enableReadTime;
+  document.getElementById('speakSenderNameToggle').checked = settings.speakSenderName; 
+  document.getElementById('speakSubjectToggle').checked = settings.speakSubject;   
 
   // Additionally, enable/disable sub-toggles based on voiceToggle state
-  const voiceToggleState = document.getElementById('voiceToggle').checked; // Corrected variable name
+  const voiceToggleState = document.getElementById('voiceToggle').checked; 
   document.getElementById('speakSenderNameToggle').disabled = !voiceToggleState;
   document.getElementById('speakSubjectToggle').disabled = !voiceToggleState;
 }
@@ -396,8 +375,12 @@ window.addEventListener('beforeunload', () => {
 window.gmail.on('display-email-in-modal', (event, emailData) => {
   if (emailPreviewFrame && emailPreviewModal && emailPreviewTitle) {
     console.log('Received email data for modal:', emailData.subject);
-    const cssToUse = emailData.css || IFRAME_BASE_CSS; // IFRAME_BASE_CSS is already defined in renderer.js
-    emailPreviewFrame.srcdoc = cssToUse + emailData.html;
+    const cssToUse = emailData.css; // IFRAME_BASE_CSS was removed
+    if (!cssToUse) {
+      console.warn("No CSS provided from main process for email display. Email might not render correctly.");
+      // Optionally, show a notification to the user, though it might be noisy if it happens often.
+    }
+    emailPreviewFrame.srcdoc = (cssToUse || "") + emailData.html; // Use empty string if cssToUse is undefined
     emailPreviewTitle.textContent = emailData.subject || 'Email Preview';
     emailPreviewModal.style.display = 'block';
   } else {
