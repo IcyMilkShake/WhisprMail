@@ -4,8 +4,9 @@ let settings = {
   enableVoiceReading: true,
   showUrgency: true,
   enableReadTime: true,
-  speakSenderName: true, // <-- ADD THIS LINE
-  speakSubject: true     // <-- ADD THIS LINE
+  speakSenderName: true, 
+  speakSubject: true,
+  viewEmailPreference: 'appWindow' // Added new setting
 };
 
 // UI Elements
@@ -28,6 +29,7 @@ const emailPreviewModal = document.getElementById('emailPreviewModal');
 const closeEmailPreviewModal = document.getElementById('closeEmailPreviewModal');
 const emailPreviewFrame = document.getElementById('emailPreviewFrame');
 const emailPreviewTitle = document.getElementById('emailPreviewTitle');
+
 
 // IFRAME_BASE_CSS (intended to be identical to main.js version)
 const IFRAME_BASE_CSS = `
@@ -102,17 +104,18 @@ if (viewAllBtn) {
         const cssToUse = IFRAME_BASE_CSS;
         emailPreviewFrame.srcdoc = cssToUse + result.html;
         emailPreviewModal.style.display = 'block';
+
       } else if (result && result.error) {
         showNotification(result.error, 'error');
-        emailPreviewFrame.srcdoc = ''; // Clear frame on error
+        emailPreviewFrame.srcdoc = ''; 
       } else {
-        showNotification('No email content found or an unknown error occurred.', 'info');
-        emailPreviewFrame.srcdoc = ''; // Clear frame
+        showNotification('No email content found or an unknown error occurred when fetching for View All.', 'info');
+        emailPreviewFrame.srcdoc = ''; 
       }
     } catch (error) {
-      console.error('Error fetching latest email HTML:', error);
-      showNotification('Failed to fetch email preview: ' + error.message, 'error');
-      emailPreviewFrame.srcdoc = ''; // Clear frame on critical error
+      console.error('Error in View All button click listener:', error);
+      showNotification('Failed to process View All request: ' + error.message, 'error');
+      emailPreviewFrame.srcdoc = ''; 
     } finally {
       setLoading(viewAllBtn, false);
     }
@@ -157,13 +160,29 @@ function updateSettingsUI() {
   document.getElementById('voiceToggle').checked = settings.enableVoiceReading;
   document.getElementById('urgencyToggle').checked = settings.showUrgency; // Add this line
   document.getElementById('readTimeToggle').checked = settings.enableReadTime; // <-- ADD THIS LINE
-  document.getElementById('speakSenderNameToggle').checked = settings.speakSenderName; // <-- ADD THIS LINE
-  document.getElementById('speakSubjectToggle').checked = settings.speakSubject;   // <-- ADD THIS LINE
+  document.getElementById('summaryToggle').checked = settings.enableSummary;
+  document.getElementById('voiceToggle').checked = settings.enableVoiceReading;
+  document.getElementById('urgencyToggle').checked = settings.showUrgency;
+  document.getElementById('readTimeToggle').checked = settings.enableReadTime;
+  document.getElementById('speakSenderNameToggle').checked = settings.speakSenderName; 
+  document.getElementById('speakSubjectToggle').checked = settings.speakSubject;   
 
   // Additionally, enable/disable sub-toggles based on voiceToggle state
-  const voiceToggleState = document.getElementById('voiceToggle').checked; // Corrected variable name
+  const voiceToggleState = document.getElementById('voiceToggle').checked; 
   document.getElementById('speakSenderNameToggle').disabled = !voiceToggleState;
   document.getElementById('speakSubjectToggle').disabled = !voiceToggleState;
+
+  // Update View Email Preference toggle switches
+  const viewInAppWindowToggle = document.getElementById('viewInAppWindowToggle');
+  const viewInGmailToggle = document.getElementById('viewInGmailToggle');
+
+  if (settings.viewEmailPreference === 'gmail') {
+    viewInGmailToggle.checked = true;
+    viewInAppWindowToggle.checked = false;
+  } else { // Default to 'appWindow'
+    viewInAppWindowToggle.checked = true;
+    viewInGmailToggle.checked = false;
+  }
 }
 
 function setLoading(element, loading) {
@@ -203,9 +222,16 @@ async function saveSettings() {
     settings.enableSummary = summaryToggle.checked;
     settings.enableVoiceReading = voiceToggle.checked;
     settings.showUrgency = urgencyToggle.checked; // Add this
-    settings.enableReadTime = readTimeToggle.checked; // <-- ADD THIS LINE
-    settings.speakSenderName = speakSenderNameToggle.checked; // <-- ADD THIS LINE
-    settings.speakSubject = speakSubjectToggle.checked;     // <-- ADD THIS LINE
+    settings.enableReadTime = readTimeToggle.checked; 
+    settings.speakSenderName = speakSenderNameToggle.checked; 
+    settings.speakSubject = speakSubjectToggle.checked;     
+
+    // Save View Email Preference from the two toggle switches
+    if (document.getElementById('viewInGmailToggle').checked) {
+      settings.viewEmailPreference = 'gmail';
+    } else { // If Gmail is not checked, App Window must be the preference
+      settings.viewEmailPreference = 'appWindow';
+    }
     
     await window.gmail.updateSettings(settings);
     showSuccessFlash(document.querySelector('.settings-panel'));
@@ -368,8 +394,37 @@ document.addEventListener('DOMContentLoaded', async () => {
   // document.getElementById('voiceToggle').addEventListener('change', debouncedSave); // Original listener removed/modified below
   document.getElementById('urgencyToggle').addEventListener('change', debouncedSave);
   document.getElementById('readTimeToggle').addEventListener('change', debouncedSave); 
-  document.getElementById('speakSenderNameToggle').addEventListener('change', debouncedSave); // <-- ADD THIS LINE
-  document.getElementById('speakSubjectToggle').addEventListener('change', debouncedSave);   // <-- ADD THIS LINE
+  document.getElementById('speakSenderNameToggle').addEventListener('change', debouncedSave); 
+  document.getElementById('speakSubjectToggle').addEventListener('change', debouncedSave);   
+
+  // Event listeners for the two new mutually exclusive toggle switches
+  const viewInAppWindowToggle = document.getElementById('viewInAppWindowToggle');
+  const viewInGmailToggle = document.getElementById('viewInGmailToggle');
+
+  viewInAppWindowToggle.addEventListener('change', () => {
+    if (viewInAppWindowToggle.checked) {
+      viewInGmailToggle.checked = false;
+    } else {
+      // Prevent unchecking if it's the only one checked (i.e., Gmail is also unchecked)
+      // This ensures at least one option is always selected.
+      if (!viewInGmailToggle.checked) {
+        viewInAppWindowToggle.checked = true; 
+      }
+    }
+    debouncedSave();
+  });
+
+  viewInGmailToggle.addEventListener('change', () => {
+    if (viewInGmailToggle.checked) {
+      viewInAppWindowToggle.checked = false;
+    } else {
+      // Prevent unchecking if it's the only one checked
+      if (!viewInAppWindowToggle.checked) {
+        viewInGmailToggle.checked = true;
+      }
+    }
+    debouncedSave();
+  });
 
   document.getElementById('voiceToggle').addEventListener('change', () => {
     // Update the settings object directly for immediate reflection in updateSettingsUI
@@ -427,8 +482,12 @@ window.addEventListener('beforeunload', () => {
 window.gmail.on('display-email-in-modal', (event, emailData) => {
   if (emailPreviewFrame && emailPreviewModal && emailPreviewTitle) {
     console.log('Received email data for modal:', emailData.subject);
-    const cssToUse = emailData.css || IFRAME_BASE_CSS; // IFRAME_BASE_CSS is already defined in renderer.js
-    emailPreviewFrame.srcdoc = cssToUse + emailData.html;
+    const cssToUse = emailData.css; // IFRAME_BASE_CSS was removed
+    if (!cssToUse) {
+      console.warn("No CSS provided from main process for email display. Email might not render correctly.");
+      // Optionally, show a notification to the user, though it might be noisy if it happens often.
+    }
+    emailPreviewFrame.srcdoc = (cssToUse || "") + emailData.html; // Use empty string if cssToUse is undefined
     emailPreviewTitle.textContent = emailData.subject || 'Email Preview';
     emailPreviewModal.style.display = 'block';
   } else {

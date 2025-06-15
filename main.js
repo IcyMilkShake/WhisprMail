@@ -37,7 +37,8 @@ let settings = {
   speakSenderName: true, // <-- ADD THIS LINE
   speakSubject: true,    // <-- ADD THIS LINE
   huggingfaceToken: process.env.HUGGINGFACE_TOKEN, // Retain from .env
-  showUrgency: true
+  showUrgency: true,
+  viewEmailPreference: 'appWindow' // Default to opening in app window
 };
 
 // --- PYTHON SCRIPT EXECUTION HELPER ---
@@ -142,6 +143,7 @@ ipcMain.on('show-full-email-in-main-window', async (event, messageId) => {
     if (emailDetails && (emailDetails.bodyHtml || emailDetails.body)) {
       // Data to pass to the new window creation function
       const viewData = {
+        id: emailDetails.id, // Ensure messageId is passed to viewData
         subject: emailDetails.subject || 'Email Preview',
         bodyHtml: emailDetails.bodyHtml, // Will be primary
         bodyText: emailDetails.body    // Fallback if bodyHtml is empty
@@ -165,6 +167,22 @@ ipcMain.on('show-full-email-in-main-window', async (event, messageId) => {
 // }
 
 function createAndShowEmailWindow(viewData) {
+  console.log(`Attempting to show email. Subject: ${viewData.subject}, ID: ${viewData.id}, Preference: ${settings.viewEmailPreference}`);
+
+  // Check preference and if messageId is available for Gmail link
+  if (settings.viewEmailPreference === 'gmail') {
+    if (viewData.id) {
+      const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${viewData.id}`;
+      console.log(`Opening email in Gmail: ${gmailUrl}`);
+      shell.openExternal(gmailUrl);
+      return; // Exit function, no app window needed
+    } else {
+      console.error('Cannot open in Gmail: messageId (viewData.id) is missing. Falling back to app window.');
+      // Proceed to open in app window as a fallback
+    }
+  }
+
+  // Proceed to open in app window if preference is 'appWindow' or if Gmail opening failed due to missing ID
   console.log(`Creating new email view window for subject: ${viewData.subject}`);
 
   let contentToLoad = '';
@@ -464,7 +482,12 @@ async function getEmailDetails(messageId) {
 
     console.log(`Processing email: "${subject}" from ${fromHeader}`);
 
-    const tone = await detectEmotionalTone(contentForAnalysis);
+    let tone;
+    if (settings.showUrgency) {
+      tone = await detectEmotionalTone(contentForAnalysis);
+    } else {
+      tone = { label: 'NEUTRAL', score: 0.0, urgency: 'low', analysis_source: 'disabled_setting' };
+    }
     const readTime = estimateReadTime(textContent);
 
     return {
@@ -477,7 +500,7 @@ async function getEmailDetails(messageId) {
       id: messageId,
       tone,
       readTime,
-      urgency: tone.urgency
+      urgency: tone.urgency // This will correctly use the tone object from the conditional logic
     };
   } catch (error) {
     console.error(`Error getting email details for ${messageId}:`, error);
@@ -790,64 +813,116 @@ function closeNotificationWithAnimation(notificationWindow) {
 
 const IFRAME_BASE_CSS = `
       <style>
+        /* Theme Colors (comments for reference, actual values used directly)
+          --primary-bg: #2C2F33;
+          --secondary-bg: #23272A;
+          --tertiary-bg: #36393F;
+          --main-text: #FFFFFF;
+          --secondary-text: #B9BBBE;
+          --accent-purple: #7289DA;
+          --lighter-purple: #8A9DF2;
+          --button-bg: #4F545C;
+          --button-hover-bg: #5D6269;
+          --border-color: #40444B;
+          --success-color: #43B581;
+          --error-color: #F04747;
+          --warning-color: #FAA61A;
+        */
         body {
-          margin: 0; /* MODIFIED */
+          margin: 10px; /* Added some margin for better aesthetics */
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
           font-size: 14px;
-          line-height: 1.5;
-          color: #333;
-          background-color: #fff;
+          line-height: 1.6; /* Slightly increased line height */
+          color: #FFFFFF; /* --main-text */
+          background-color: #2C2F33; /* --primary-bg */
           word-wrap: break-word;
           overflow-wrap: break-word;
-          /* width: 100%; // Keep if you want body to at least try to fill, but content can make it wider */
-          /* max-width: 100%; // Remove this if body content is meant to define scrollable width */
           box-sizing: border-box;
-          overflow-x: auto; /* CRITICAL: Re-enable horizontal scrolling for the body */
-          /* overflow-y: auto; // Implicitly handled by default or can be added if needed */
+          overflow-x: auto; 
         }
         a {
-          color: #1a73e8;
+          color: #7289DA; /* --accent-purple */
+          text-decoration: none; /* Remove underline by default */
         }
         a:hover {
+          color: #8A9DF2; /* --lighter-purple */
+          text-decoration: underline; /* Underline on hover */
         }
         img {
-          max-width: 100%; /* No !important. Allows inline style to override for wider images. */
-          height: auto;    /* No !important. */
+          max-width: 100%; 
+          height: auto; 
+          display: block; /* Block display for proper spacing */
+          margin: 5px 0; /* Some margin around images */
         }
-        p, div, li, blockquote {
-            word-wrap: break-word;
-            overflow-wrap: break-word;
+        p, div, li { /* General text containers */
+            color: #FFFFFF; /* --main-text, ensure inheritance or set explicitly */
         }
         table {
-          table-layout: auto;  /* More natural for content-based sizing, allows tables to be wider than container */
-          width: auto;         /* Let table determine its own width based on content */
-                           /* Remove max-width: 100% if tables are meant to scroll horizontally */
+          table-layout: auto;  
+          width: auto;         
           border-collapse: collapse;
-          /* word-wrap and overflow-wrap on table itself might be less effective than on cells */
+          margin-bottom: 1em; /* Spacing below tables */
+          border: 1px solid #40444B; /* --border-color */
         }
         td, th {
-          border: none; /* MODIFIED */
-          word-wrap: break-word;   /* Still important for content within cells */
+          border: 1px solid #40444B; /* --border-color */
+          padding: 8px; 
+          text-align: left; /* Align text to left by default */
+          word-wrap: break-word;   
           overflow-wrap: break-word;
-          min-width: 0;          /* Still useful for flexible columns */
+          min-width: 0;          
+        }
+        th { /* Table headers */
+          background-color: #23272A; /* --secondary-bg */
+          color: #FFFFFF; /* --main-text */
+          font-weight: bold; /* Make headers bold */
+        }
+        blockquote {
+            border-left: 3px solid #7289DA; /* --accent-purple */
+            background-color: #23272A; /* --secondary-bg */
+            color: #B9BBBE; /* --secondary-text */
+            padding: 10px 15px; /* Padding inside blockquote */
+            margin: 10px 0; /* Margin around blockquote */
+            border-radius: 4px; /* Rounded corners */
         }
         pre {
           white-space: pre-wrap;
           word-wrap: break-word;
-          overflow-x: auto; /* Allows horizontal scroll *within the pre block only* */
-          background: #f4f4f4;
-          padding: 10px;
+          overflow-x: auto; 
+          background-color: #23272A; /* --secondary-bg */
+          color: #B9BBBE; /* --secondary-text */
+          border: 1px solid #40444B; /* --border-color */
+          padding: 12px; /* Increased padding */
           border-radius: 4px;
-          max-width: 100%; /* The pre block itself tries to fit the container width */
+          max-width: 100%; 
           box-sizing: border-box;
         }
         ul, ol {
+          padding-left: 20px; /* Standard padding for lists */
+          color: #FFFFFF; /* --main-text */
         }
-
-        * {
-          outline: none !important;
-          outline-style: none !important; /* Be explicit */
-          -moz-outline-style: none !important; /* Firefox specific if needed */
+        li {
+          margin-bottom: 5px; /* Spacing between list items */
+        }
+        h1, h2, h3, h4, h5, h6 {
+          color: #FFFFFF; /* --main-text */
+          margin-top: 1em; /* Space above headings */
+          margin-bottom: 0.5em; /* Space below headings */
+        }
+        /* Scrollbars */
+        ::-webkit-scrollbar {
+          width: 8px;
+          height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+          background: #2C2F33; /* --primary-bg */
+        }
+        ::-webkit-scrollbar-thumb {
+          background: #4F545C; /* --button-bg */
+          border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+          background: #5D6269; /* --button-hover-bg */
         }
       </style>
     `;
@@ -960,6 +1035,21 @@ function createEnhancedNotificationHTML(emailData) {
     <head>
       <style>
         /* All your existing CSS styles remain the same */
+        /* Theme Colors (comments for reference, actual values used directly)
+          --primary-bg: #2C2F33;
+          --secondary-bg: #23272A;
+          --tertiary-bg: #36393F;
+          --main-text: #FFFFFF;
+          --secondary-text: #B9BBBE;
+          --accent-purple: #7289DA;
+          --lighter-purple: #8A9DF2;
+          --button-bg: #4F545C;
+          --button-hover-bg: #5D6269;
+          --border-color: #40444B;
+          --success-color: #43B581;
+          --error-color: #F04747;
+          --warning-color: #FAA61A;
+        */
         * {
           margin: 0;
           padding: 0;
@@ -968,25 +1058,27 @@ function createEnhancedNotificationHTML(emailData) {
         
         body {
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
-          background: linear-gradient(135deg, #e0e0e0, #f5f5f5); /* Simpler gradient */
+          /* background: linear-gradient(135deg, #e0e0e0, #f5f5f5); Removed for dark theme */
           width: 100%;
           height: 100%;
-          border-radius: 16px;
+          border-radius: 8px; /* Updated from 16px for consistency */
           overflow: hidden;
           cursor: pointer;
           animation: slideIn 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-          box-shadow: 0 5px 15px rgba(0,0,0,0.1); /* More subtle shadow */
+          /* box-shadow: 0 5px 15px rgba(0,0,0,0.1); Removed for dark theme */
           position: relative;
+          background-color: #23272A; /* --secondary-bg */
         }
         
         .notification-container {
-          background: #ffffff; /* Solid white */
-          /* backdrop-filter: blur(30px); */ /* Removed blur */
+          background: #23272A; /* --secondary-bg */
           height: 100%;
           display: flex;
           flex-direction: column;
           position: relative;
           overflow: hidden;
+          border-radius: 8px;
+          box-shadow: 0 5px 15px rgba(0,0,0,0.2);
         }
         
         .notification-container::before {
@@ -996,52 +1088,40 @@ function createEnhancedNotificationHTML(emailData) {
           left: 0;
           right: 0;
           height: 4px;
-          background: #7f8c8d; /* Neutral grey */
+          background: #7289DA; /* --accent-purple */
           z-index: 1;
         }
         
-        /* Add special styling for high urgency notifications */
         .notification-container.high-urgency::before {
-          background: #c9302c; /* Solid, strong red */
-          height: 4px; /* Standard height */
-          /* animation: urgentPulse 1.5s infinite; */ /* Removed animation */
+          background: #F04747; /* --error-color */
         }
-        
-        /*
-        @keyframes urgentPulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.6; }
-        }
-        */
         
         .main-content {
           display: flex;
-          padding: 20px;
+          padding: 15px; /* Slightly reduced padding */
           flex: 1;
           min-height: 0;
         }
         
         .avatar {
-          width: 56px;
-          height: 56px;
+          width: 48px; /* Slightly smaller */
+          height: 48px;
           border-radius: 50%;
-          background: #bdc3c7; /* Neutral grey */
+          background: #36393F; /* --tertiary-bg */
           display: flex;
           align-items: center;
           justify-content: center;
-          color: white;
+          color: #FFFFFF; /* --main-text */
           font-weight: 700;
-          font-size: 22px;
-          margin-right: 16px;
+          font-size: 20px;
+          margin-right: 12px;
           flex-shrink: 0;
-          box-shadow: 0 2px 6px rgba(0,0,0,0.1); /* Subtle shadow */
+          box-shadow: 0 2px 4px rgba(0,0,0,0.15);
         }
         
-        /* High urgency avatar styling */
         .avatar.high-urgency {
-          background: #dc2626; /* Solid red */
-          box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4); /* More subtle shadow */
-          /* animation: pulse 2s infinite; */ /* Consider removing or making pulse more subtle if keyframes are changed */
+          background: #F04747; /* --error-color */
+          box-shadow: 0 2px 8px rgba(240, 71, 71, 0.4);
         }
         
         .content {
@@ -1055,196 +1135,165 @@ function createEnhancedNotificationHTML(emailData) {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          margin-bottom: 8px;
+          margin-bottom: 6px;
         }
         
         .sender {
-          font-weight: 700;
-          color: #1a1a1a;
-          font-size: 16px;
+          font-weight: 600; /* Slightly less bold */
+          color: #FFFFFF; /* --main-text */
+          font-size: 15px;
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
-          max-width: 250px;
+          max-width: 220px; /* Adjusted max-width */
         }
         
         .badges {
           display: flex;
-          gap: 6px;
+          gap: 5px; /* Reduced gap */
           flex-shrink: 0;
           align-items: center;
         }
         
         .urgency-badge {
-          font-size: 11px;
-          padding: 3px 7px; /* Slightly adjusted padding */
-          border-radius: 10px; /* Slightly smaller radius */
-          font-weight: 600; /* Slightly less bold */
-          color: white;
+          font-size: 10px;
+          padding: 3px 6px; 
+          border-radius: 6px; 
+          font-weight: 600; 
+          color: #FFFFFF; /* Default white text */
           white-space: nowrap;
-          /* text-transform: uppercase; */ /* Optional: remove if too shouty */
-          letter-spacing: 0.2px; /* Reduced letter spacing */
-          box-shadow: 0 1px 2px rgba(0,0,0,0.15); /* More subtle shadow */
+          letter-spacing: 0.1px; 
+          box-shadow: 0 1px 2px rgba(0,0,0,0.2);
         }
 
         .urgency-badge.high {
-          background-color: #c9302c; /* Solid, strong red */
-          /* Removed animation and complex box-shadow */
+          background-color: #F04747; /* --error-color */
         }
 
         .urgency-badge.medium {
-          background-color: #f0ad4e; /* Solid, noticeable orange */
-          /* Removed complex box-shadow */
+          background-color: #FAA61A; /* --warning-color */
+          color: #000000; /* Black text for contrast */
         }
-
-        /*
-        @keyframes pulse {
-          0%, 100% { 
-            opacity: 1; 
-            transform: scale(1);
-          }
-          50% { 
-            opacity: 0.9;
-            transform: scale(1.02);
-          }
-        }
-        */
         
         .summary-badge {
-          background-color: #5dade2; /* Solid blue/purple */
-          color: white;
-          box-shadow: 0 1px 2px rgba(0,0,0,0.1); /* Subtle shadow */
-          padding: 3px 7px;
-          border-radius: 10px;
+          background-color: #7289DA; /* --accent-purple */
+          color: #FFFFFF; /* --main-text */
+          box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+          padding: 3px 6px;
+          border-radius: 6px;
           font-weight: 600;
           font-size: 10px;
         }
         
         .read-time-badge {
           font-size: 10px;
-          padding: 2px 6px; /* Existing padding is fine */
-          border-radius: 8px; /* Existing radius is fine */
-          background: #ecf0f1; /* Light grey background */
-          color: #555; /* Darker text for contrast */
+          padding: 3px 6px; 
+          border-radius: 6px; 
+          background: #36393F; /* --tertiary-bg */
+          color: #B9BBBE; /* --secondary-text */
         }
 
         .ocr-badge {
-          background-color: #9b59b6; /* Solid purple */
-          color: white;
-          box-shadow: 0 1px 2px rgba(0,0,0,0.1); /* Subtle shadow */
-          padding: 3px 7px;
-          border-radius: 10px;
+          background-color: #8A9DF2; /* --lighter-purple */
+          color: #000000; /* Black text for contrast */
+          box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+          padding: 3px 6px;
+          border-radius: 6px;
           font-weight: 600;
           font-size: 10px;
         }
         
         .subject {
-          font-weight: 600;
-          color: #2c2c2c;
-          font-size: 15px;
-          margin-bottom: 10px;
+          font-weight: 500; /* Normal weight */
+          color: #FFFFFF; /* --main-text */
+          font-size: 14px;
+          margin-bottom: 8px;
           line-height: 1.3;
           word-wrap: break-word;
         }
         
-        /* Styles for the fallback .body-text if iframe is not used */
         .body-text {
-          color: #555;
+          color: #B9BBBE; /* --secondary-text */
           font-size: 13px;
-          line-height: 1.5;
-          flex: 1; /* Ensure it takes up space if it's the main content view */
-          overflow-y: auto; /* Allow scrolling for plain text too */
+          line-height: 1.4; /* Adjusted line height */
+          flex: 1; 
+          overflow-y: auto; 
           word-wrap: break-word;
           white-space: pre-wrap;
-          max-height: 200px; /* Consistent max height */
-          padding-right: 8px; /* For scrollbar */
-          background-color: #fff; /* Match iframe container background */
-          border: 1px solid #eee; /* Match iframe container border */
-          border-radius: 4px; /* Match iframe container border-radius */
-          padding: 10px; /* Add some padding */
-        }
-
-        /* Styles for the iframe container */
-        .body-html-container {
-            height: 200px; /* Fixed height for the email body display area */
-            max-height: 200px; /* Ensure it doesn't exceed this */
-            overflow: hidden; /* The iframe inside will scroll */
-            background-color: #fff;
-            border: 1px solid #eee;
-            border-radius: 4px;
-            flex-grow: 1; /* Allow it to take available space in flex column */
-            min-height: 0; /* Important for flex item that needs to scroll */
+          max-height: 150px; /* Adjusted max height */
+          padding-right: 5px; 
+          background-color: #2C2F33; /* --primary-bg */
+          border: 1px solid #40444B; /* --border-color */
+          border-radius: 4px; 
+          padding: 8px; 
         }
         
         .body-text::-webkit-scrollbar {
-          width: 4px;
+          width: 8px; 
+          height: 8px;
         }
         
         .body-text::-webkit-scrollbar-track {
-          background: rgba(0,0,0,0.05);
-          border-radius: 2px;
+          background: #2C2F33; /* --primary-bg */
         }
         
         .body-text::-webkit-scrollbar-thumb {
-          background: rgba(0,0,0,0.2);
-          border-radius: 2px;
+          background: #4F545C; /* --button-bg */
+          border-radius: 4px;
         }
         
         .body-text::-webkit-scrollbar-thumb:hover {
-          background: rgba(0,0,0,0.3);
+          background: #5D6269; /* --button-hover-bg */
         }
         
         .attachments-section {
-          border-top: 1px solid rgba(0,0,0,0.1);
-          padding: 12px 20px;
-          background: #f8f9fa; /* More opaque, standard light grey */
+          border-top: 1px solid #40444B; /* --border-color */
+          padding: 10px 15px; /* Adjusted padding */
+          background: #2C2F33; /* --primary-bg */
         }
         
         .attachments-header {
-          margin-bottom: 8px;
+          margin-bottom: 6px;
         }
         
         .attachments-title {
-          font-size: 12px;
+          font-size: 11px; /* Slightly smaller */
           font-weight: 600;
-          color: #4a5568;
+          color: #B9BBBE; /* --secondary-text */
         }
         
         .attachments-list {
           display: flex;
           flex-direction: column;
-          gap: 6px;
+          gap: 5px; /* Reduced gap */
         }
         
         .attachment-item {
           display: flex;
           align-items: center;
-          padding: 8px 12px;
-          background: white;
-          border-radius: 8px;
+          padding: 6px 10px; /* Adjusted padding */
+          background: #36393F; /* --tertiary-bg */
+          border-radius: 6px;
           cursor: pointer;
-          transition: all 0.2s ease;
-          box-shadow: 0 1px 2px rgba(0,0,0,0.05); /* Simplified shadow */
-          border: 1px solid rgba(0,0,0,0.05);
+          transition: background-color 0.2s ease;
+          border: 1px solid #40444B; /* --border-color */
         }
         
         .attachment-item:hover {
-          background: #e9ecef; /* Darker hover */
-          /* transform: translateY(-1px); */ /* Removed transform */
-          box-shadow: 0 1px 3px rgba(0,0,0,0.08); /* Adjusted hover shadow */
+          background: #5D6269; /* --button-hover-bg */
         }
         
         .attachment-icon {
-          width: 32px;
-          height: 32px;
-          border-radius: 6px;
-          background-color: #aab7c4; /* Neutral grey */
+          width: 28px; /* Smaller icon */
+          height: 28px;
+          border-radius: 4px;
+          background-color: #4F545C; /* --button-bg for icon bg */
           display: flex;
           align-items: center;
           justify-content: center;
-          margin-right: 10px;
-          font-size: 16px;
-          color: white;
+          margin-right: 8px;
+          font-size: 14px;
+          color: #FFFFFF; /* --main-text */
           flex-shrink: 0;
         }
         
@@ -1254,30 +1303,30 @@ function createEnhancedNotificationHTML(emailData) {
         }
         
         .attachment-name {
-          font-size: 13px;
+          font-size: 12px;
           font-weight: 500;
-          color: #2d3748;
+          color: #FFFFFF; /* --main-text */
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
         }
         
         .attachment-size {
-          font-size: 11px;
-          color: #718096;
+          font-size: 10px;
+          color: #B9BBBE; /* --secondary-text */
         }
         
         .image-preview-badge {
-          font-size: 16px;
-          margin-left: 8px;
+          font-size: 14px; /* Adjusted size */
+          margin-left: 6px;
         }
         
         .quick-actions {
           display: flex;
-          gap: 8px;
-          padding: 12px 20px;
-          background: #f1f3f5; /* More opaque */
-          border-top: 1px solid rgba(0,0,0,0.05);
+          gap: 6px; /* Reduced gap */
+          padding: 10px 15px; /* Adjusted padding */
+          background: #2C2F33; /* --primary-bg */
+          border-top: 1px solid #40444B; /* --border-color */
         }
 
         .quick-btn {
@@ -1285,69 +1334,68 @@ function createEnhancedNotificationHTML(emailData) {
           display: flex;
           align-items: center;
           justify-content: center;
-          gap: 6px;
-          padding: 8px 12px;
-          border: none;
-          border-radius: 6px;
-          font-size: 12px;
+          gap: 5px; /* Reduced gap */
+          padding: 8px 10px; /* Adjusted padding */
+          border: 1px solid #40444B; /* --border-color */
+          border-radius: 5px; /* Standardized radius */
+          font-size: 11px; /* Smaller font */
           font-weight: 600;
           cursor: pointer;
-          transition: all 0.2s ease;
-          background: white;
-          color: #4a5568;
-          box-shadow: 0 1px 2px rgba(0,0,0,0.1); /* Simplified shadow */
+          transition: background-color 0.2s ease;
+          background: #4F545C; /* --button-bg */
+          color: #FFFFFF; /* --main-text */
+          box-shadow: 0 1px 2px rgba(0,0,0,0.15);
         }
 
         .quick-btn:hover {
-          /* transform: translateY(-1px); */ /* Removed transform */
-          box-shadow: 0 2px 4px rgba(0,0,0,0.12); /* Adjusted hover shadow */
+          background: #5D6269; /* --button-hover-bg */
         }
 
-        .quick-btn.mark-as-read:hover { /* Changed from mark-read */
-          background: #10b981;
+        .quick-btn.mark-as-read:hover {
+          background: #43B581; /* --success-color */
           color: white;
         }
 
         .quick-btn.trash:hover {
-          background: #ef4444;
+          background: #F04747; /* --error-color */
           color: white;
         }
 
         .quick-btn.star:hover {
-          background: #f59e0b; /* Keep yellow for star, or choose another color */
-          color: white;
+          background: #FAA61A; /* --warning-color */
+          color: black; /* Contrast for yellow */
         }
 
         .quick-btn.view-full-email:hover {
-          background: #3498db; /* A nice blue color */
+          background: #7289DA; /* --accent-purple */
           color: white;
         }
 
         .btn-icon {
-          font-size: 14px;
+          font-size: 13px; /* Adjusted size */
         }
 
         .btn-text {
-          font-size: 11px;
+          font-size: 10px; /* Adjusted size */
         }
         
         .close-btn {
           position: absolute;
-          top: 12px;
-          right: 12px;
-          width: 28px;
-          height: 28px;
+          top: 10px; /* Adjusted position */
+          right: 10px;
+          width: 24px; /* Smaller button */
+          height: 24px;
           border-radius: 50%;
-          background: rgba(0,0,0,0.1);
+          background: #36393F; /* --tertiary-bg */
           border: none;
-          color: #666;
+          color: #B9BBBE; /* --secondary-text */
           cursor: pointer;
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 16px;
-          opacity: 0;
-          transition: all 0.3s ease;
+          font-size: 14px; /* Adjusted size */
+          opacity: 0.7; /* Slightly visible by default */
+          transition: all 0.2s ease;
           z-index: 2;
         }
         
@@ -1356,21 +1404,12 @@ function createEnhancedNotificationHTML(emailData) {
         }
 
         .close-btn:hover {
-          background: rgba(239, 68, 68, 0.9);
-          color: white;
+          background: #F04747; /* --error-color */
+          color: #FFFFFF; /* --main-text */
           transform: scale(1.1);
         }
         
-        .long-content-indicator {
-          text-align: center;
-          padding: 8px;
-          font-size: 11px;
-          color: #718096;
-          font-style: italic;
-          background: rgba(0,0,0,0.02);
-          border-radius: 4px;
-          margin-top: 8px;
-        }
+        /* Removed .long-content-indicator as it's not themed for dark */
         
         @keyframes slideIn {
           from {
@@ -1861,12 +1900,7 @@ async function checkForNewEmails() {
               if (settings.speakSubject && notificationData.subject) {
                 voiceMsgParts.push(`Subject: ${notificationData.subject}.`);
               }
-
-              // ADD THIS: Include the email body/description
-              if (notificationData.body) {
-                voiceMsgParts.push(`Description: ${notificationData.body}.`);
-              }
-
+              
               if (voiceMsgParts.length > 0) {
                 const voiceMsg = voiceMsgParts.join(' ');
                 say.speak(voiceMsg);
@@ -1933,6 +1967,22 @@ function stopMonitoring() {
 }
 
 // --- IPC HANDLERS ---
+ipcMain.handle('open-email-in-gmail', async (event, messageId) => {
+  if (!messageId) {
+    console.error('Error opening email in Gmail: No messageId provided.');
+    return { success: false, error: 'No messageId provided' };
+  }
+  try {
+    const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${messageId}`;
+    await shell.openExternal(gmailUrl);
+    console.log(`Successfully opened email ${messageId} in Gmail.`);
+    return { success: true };
+  } catch (error) {
+    console.error(`Error opening email ${messageId} in Gmail:`, error);
+    return { success: false, error: `Failed to open email in Gmail: ${error.message}` };
+  }
+});
+
 ipcMain.handle('check-new-mail', async () => {
   if (!gmail) try { await initializeGmail(); } catch (e) { console.error("Gmail init failed in check-new-mail:", e); return 0; }
   if (!gmail) return 0;
