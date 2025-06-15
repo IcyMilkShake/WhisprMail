@@ -641,38 +641,41 @@
             </label>
           </div>
 
-          <!-- Sub-heading for Email View Preference -->
-          <div style="padding: 10px 0 5px 0; color: var(--main-text); font-size: 16px; font-weight: bold; border-bottom: 1px solid var(--border-color); margin-bottom: 5px;">
-            View Emails Using:
-          </div>
+        </div>
 
-          <!-- App Window Toggle -->
-          <div class="setting-item">
-            <div class="setting-info">
-              <div class="setting-label" style="font-size: 13px;">
-                <span>🖥️</span> App Window
-              </div>
-              <div class="setting-description" style="font-size: 11px;">View emails in a new window within this application.</div>
-            </div>
-            <label class="toggle">
-              <input type="checkbox" id="viewInAppWindowToggle">
-              <span class="slider"></span>
+        <!-- Sub-heading for Appearance -->
+        <div style="padding: 10px 0 5px 0; color: var(--main-text); font-size: 16px; font-weight: bold; border-bottom: 1px solid var(--border-color); margin-bottom: 5px;">
+          Appearance:
+        </div>
+
+        <!-- Dark Theme Radio Button -->
+        <div class="setting-item">
+          <div class="setting-info">
+            <label for="themeDark" class="setting-label" style="font-size: 13px;">
+              <span>🌙</span> Dark
             </label>
           </div>
+          <input type="radio" id="themeDark" name="theme" value="dark" checked>
+        </div>
 
-          <!-- Gmail Toggle -->
-          <div class="setting-item">
-            <div class="setting-info">
-              <div class="setting-label" style="font-size: 13px;">
-                <span>🌐</span> Gmail
-              </div>
-              <div class="setting-description" style="font-size: 11px;">View emails directly in the Gmail web application.</div>
-            </div>
-            <label class="toggle">
-              <input type="checkbox" id="viewInGmailToggle">
-              <span class="slider"></span>
+        <!-- Light Theme Radio Button -->
+        <div class="setting-item">
+          <div class="setting-info">
+            <label for="themeLight" class="setting-label" style="font-size: 13px;">
+              <span>☀️</span> Light
             </label>
           </div>
+          <input type="radio" id="themeLight" name="theme" value="light">
+        </div>
+
+        <!-- Midnight Theme Radio Button -->
+        <div class="setting-item">
+          <div class="setting-info">
+            <label for="themeMidnight" class="setting-label" style="font-size: 13px;">
+              <span>🌃</span> Midnight
+            </label>
+          </div>
+          <input type="radio" id="themeMidnight" name="theme" value="midnight">
         </div>
       </div>
 
