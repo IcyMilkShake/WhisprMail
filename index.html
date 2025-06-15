@@ -607,9 +607,6 @@
           <button class="control-btn btn-check" onclick="checkEmail()" id="checkBtn">
             <span>📬</span> Check Now
           </button>
-          <button class="control-btn btn-view-all" id="viewAllBtn">
-            <span>📄</span> View All
-          </button>
         </div>
         
         <div class="settings-panel">
@@ -746,14 +743,5 @@
 
   <script src="renderer.js"></script>
 
-<div id="emailPreviewModal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6);">
-  <div style="background-color: #fefefe; margin: 5% auto; padding: 20px; border: 1px solid #888; width: 80%; height: 80%; border-radius: 12px; box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2),0 6px 20px 0 rgba(0,0,0,0.19); display: flex; flex-direction: column;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-      <h2 id="emailPreviewTitle" style="font-size: 20px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90%;">Email Preview</h2>
-      <span id="closeEmailPreviewModal" style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
-    </div>
-    <iframe id="emailPreviewFrame" style="flex-grow: 1; width: 100%; height: 100%; border: 1px solid #ccc; border-radius: 8px;"></iframe>
-  </div>
-</div>
 </body>
 </html>
