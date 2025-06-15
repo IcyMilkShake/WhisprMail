@@ -29,12 +29,11 @@ const closeEmailPreviewModal = document.getElementById('closeEmailPreviewModal')
 const emailPreviewFrame = document.getElementById('emailPreviewFrame');
 const emailPreviewTitle = document.getElementById('emailPreviewTitle');
 
-// IFRAME_BASE_CSS (copied from main.js for now, will be ideally passed via IPC)
-// THIS IS A TEMPORARY SOLUTION. Ideally, this CSS should be fetched from main.js or defined in a shared way.
+// IFRAME_BASE_CSS (intended to be identical to main.js version)
 const IFRAME_BASE_CSS = `
       <style>
         body {
-          margin: 10px;
+          margin: 0;
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
           font-size: 14px;
           line-height: 1.5;
@@ -45,16 +44,47 @@ const IFRAME_BASE_CSS = `
           box-sizing: border-box;
           overflow-x: auto;
         }
-        a { color: #1a73e8; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        img { max-width: 100%; height: auto; display: block; margin: 5px 0; }
-        p, div, li, blockquote { word-wrap: break-word; overflow-wrap: break-word; }
-        table { table-layout: auto; width: auto; border-collapse: collapse; margin-bottom: 1em; }
-        td, th { border: 1px solid #ddd; padding: 8px; text-align: left; word-wrap: break-word; overflow-wrap: break-word; min-width: 0; }
-        blockquote { border-left: 3px solid #ccc; padding-left: 10px; margin-left: 5px; color: #555; }
-        pre { white-space: pre-wrap; word-wrap: break-word; overflow-x: auto; background: #f4f4f4; padding: 10px; border-radius: 4px; max-width: 100%; box-sizing: border-box; }
-        ul, ol { padding-left: 20px; }
-        div, h1, h2, h3, h4, h5, h6, p, span, li, td, th, a, img, figure, article, section, header, footer, nav, aside, button, input, select, textarea, label { outline: none !important; outline-style: none !important; -moz-outline-style: none !important; }
+        a {
+          color: #1a73e8;
+        }
+        a:hover {
+        }
+        img {
+          max-width: 100%;
+          height: auto;
+        }
+        p, div, li {
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+        table {
+          table-layout: auto;
+          width: auto;
+          border-collapse: collapse;
+        }
+        td, th {
+          border: none;
+          word-wrap: break-word;
+          overflow-wrap: break-word;
+          min-width: 0;
+        }
+        pre {
+          white-space: pre-wrap;
+          word-wrap: break-word;
+          overflow-x: auto;
+          background: #f4f4f4;
+          padding: 10px;
+          border-radius: 4px;
+          max-width: 100%;
+          box-sizing: border-box;
+        }
+        ul, ol {
+        }
+        * {
+          outline: none !important;
+          outline-style: none !important;
+          -moz-outline-style: none !important;
+        }
       </style>
     `;
 
@@ -68,7 +98,8 @@ if (viewAllBtn) {
 
       if (result && result.success && result.html) {
         // If CSS is also passed from main.js, use result.css. Otherwise, use the local IFRAME_BASE_CSS.
-        const cssToUse = result.css || IFRAME_BASE_CSS;
+        // For consistency, we are now making the local IFRAME_BASE_CSS match the main.js one.
+        const cssToUse = IFRAME_BASE_CSS;
         emailPreviewFrame.srcdoc = cssToUse + result.html;
         emailPreviewModal.style.display = 'block';
       } else if (result && result.error) {
