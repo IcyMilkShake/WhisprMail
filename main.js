@@ -185,28 +185,19 @@ app.whenReady().then(async () => {
 });
 
 ipcMain.on('show-full-email-in-main-window', async (event, messageId) => {
-  console.log(`IPC: Request to open email ID ${messageId} in a new window.`);
+  console.log(`IPC: Request to open email ID ${messageId} externally.`); // Log message updated for clarity
   try {
-    const emailDetails = await getEmailDetails(messageId);
-
-    if (emailDetails && (emailDetails.bodyHtml || emailDetails.body)) {
-      // Data to pass to the new window creation function
-      const viewData = {
-        id: emailDetails.id, // Ensure messageId is passed to viewData
-        subject: emailDetails.subject || 'Email Preview',
-        bodyHtml: emailDetails.bodyHtml, // Will be primary
-        bodyText: emailDetails.body    // Fallback if bodyHtml is empty
-      };
-      // Call a function (to be implemented in next step) that creates the new window
-      createAndShowEmailWindow(viewData);
+    if (messageId) {
+      createAndShowEmailWindow(messageId); // Call modified function directly
     } else {
-      console.error(`Could not fetch sufficient details for emailId: ${messageId} to display in new window.`);
-      // Optionally, could show a main process dialog error:
-      // dialog.showErrorBox('Error', `Could not load content for email ID ${messageId}.`);
+      console.error('Error opening email: messageId is missing or invalid.');
+      // Optionally, inform the user via a dialog if appropriate in your app's UX
+      // dialog.showErrorBox('Error', 'Could not open email as the ID was missing.');
     }
   } catch (error) {
-    console.error(`Error processing 'show-full-email-in-main-window' for new window (ID ${messageId}):`, error);
-    // dialog.showErrorBox('Error', `Error loading email ID ${messageId}: ${error.message}`);
+    console.error(`Error processing 'show-full-email-in-main-window' for ID ${messageId}:`, error);
+    // Optionally, inform the user
+    // dialog.showErrorBox('Error', `Error trying to open email ID ${messageId}: ${error.message}`);
   }
 });
 
@@ -215,15 +206,15 @@ ipcMain.on('show-full-email-in-main-window', async (event, messageId) => {
 //   console.log(`Placeholder: Would create new window for subject: ${viewData.subject}`);
 // }
 
-function createAndShowEmailWindow(viewData) {
-  console.log(`Attempting to show email. Subject: ${viewData.subject}, ID: ${viewData.id}`);
+function createAndShowEmailWindow(messageId) { // Changed signature
+  console.log(`Attempting to show email. ID: ${messageId}`); // Changed log
 
-  if (viewData.id) {
-    const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${viewData.id}`;
+  if (messageId) { // Use messageId directly
+    const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${messageId}`; // Use messageId directly
     console.log(`Opening email in Gmail: ${gmailUrl}`);
     shell.openExternal(gmailUrl);
   } else {
-    console.error('Cannot open in Gmail: messageId (viewData.id) is missing.');
+    console.error('Cannot open in Gmail: messageId is missing.'); // Updated error message
     // Optionally, show a main process dialog error to the user
     // dialog.showErrorBox('Error', 'Cannot open email in Gmail because its ID is missing.');
   }
