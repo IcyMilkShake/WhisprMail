@@ -29,6 +29,55 @@ let monitoringStartTime = null;
 let activeNotifications = new Set(); // Track active notification windows
 let openEmailViewWindows = new Set();
 
+// Theme Palettes (mirrored from renderer.js)
+const themePalettes = {
+  dark: { // Current default theme - values from :root in index.html
+    '--primary-bg': '#2C2F33',
+    '--secondary-bg': '#23272A',
+    '--tertiary-bg': '#36393F',
+    '--main-text': '#FFFFFF',
+    '--secondary-text': '#B9BBBE',
+    '--accent-purple': '#7289DA',
+    '--lighter-purple': '#8A9DF2',
+    '--button-bg': '#4F545C',
+    '--button-hover-bg': '#5D6269',
+    '--success-color': '#43B581',
+    '--error-color': '#F04747',
+    '--warning-color': '#FAA61A',
+    '--border-color': '#40444B'
+  },
+  light: {
+    '--primary-bg': '#FFFFFF',
+    '--secondary-bg': '#F2F3F5',
+    '--tertiary-bg': '#E3E5E8',
+    '--main-text': '#060607',
+    '--secondary-text': '#5F6772',
+    '--accent-purple': '#5865F2',
+    '--lighter-purple': '#7983F5',
+    '--button-bg': '#E3E5E8',
+    '--button-hover-bg': '#D4D7DC',
+    '--success-color': '#2DC770',
+    '--error-color': '#ED4245',
+    '--warning-color': '#E67E22',
+    '--border-color': '#DCDFE4'
+  },
+  midnight: {
+    '--primary-bg': '#1A1C1E',
+    '--secondary-bg': '#111214',
+    '--tertiary-bg': '#202225',
+    '--main-text': '#E0E0E0',
+    '--secondary-text': '#A0A0A0',
+    '--accent-purple': '#6A79CC',
+    '--lighter-purple': '#808EE0',
+    '--button-bg': '#2A2D31',
+    '--button-hover-bg': '#35393E',
+    '--success-color': '#3BA55D',
+    '--error-color': '#D83C3E',
+    '--warning-color': '#D9822B',
+    '--border-color': '#2D2F33'
+  }
+};
+
 // User settings
 let settings = {
   enableSummary: false,
@@ -38,7 +87,7 @@ let settings = {
   speakSubject: true,    // <-- ADD THIS LINE
   huggingfaceToken: process.env.HUGGINGFACE_TOKEN, // Retain from .env
   showUrgency: true,
-  viewEmailPreference: 'appWindow' // Default to opening in app window
+  appearanceTheme: 'dark' // Added new theme setting
 };
 
 // --- PYTHON SCRIPT EXECUTION HELPER ---
@@ -167,103 +216,17 @@ ipcMain.on('show-full-email-in-main-window', async (event, messageId) => {
 // }
 
 function createAndShowEmailWindow(viewData) {
-  console.log(`Attempting to show email. Subject: ${viewData.subject}, ID: ${viewData.id}, Preference: ${settings.viewEmailPreference}`);
+  console.log(`Attempting to show email. Subject: ${viewData.subject}, ID: ${viewData.id}`);
 
-  // Check preference and if messageId is available for Gmail link
-  if (settings.viewEmailPreference === 'gmail') {
-    if (viewData.id) {
-      const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${viewData.id}`;
-      console.log(`Opening email in Gmail: ${gmailUrl}`);
-      shell.openExternal(gmailUrl);
-      return; // Exit function, no app window needed
-    } else {
-      console.error('Cannot open in Gmail: messageId (viewData.id) is missing. Falling back to app window.');
-      // Proceed to open in app window as a fallback
-    }
-  }
-
-  // Proceed to open in app window if preference is 'appWindow' or if Gmail opening failed due to missing ID
-  console.log(`Creating new email view window for subject: ${viewData.subject}`);
-
-  let contentToLoad = '';
-  if (viewData.bodyHtml) {
-    contentToLoad = viewData.bodyHtml;
-  } else if (viewData.bodyText) {
-    // If no HTML body, use plain text wrapped in <pre> for basic formatting.
-    // Escape HTML characters in plain text to prevent misinterpretation.
-    const escapedBodyText = viewData.bodyText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    contentToLoad = `<pre style="white-space: pre-wrap; word-wrap: break-word; font-family: sans-serif;">${escapedBodyText}</pre>`;
+  if (viewData.id) {
+    const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${viewData.id}`;
+    console.log(`Opening email in Gmail: ${gmailUrl}`);
+    shell.openExternal(gmailUrl);
   } else {
-    contentToLoad = '<p>No content available for this email.</p>';
+    console.error('Cannot open in Gmail: messageId (viewData.id) is missing.');
+    // Optionally, show a main process dialog error to the user
+    // dialog.showErrorBox('Error', 'Cannot open email in Gmail because its ID is missing.');
   }
-
-  // Combine base CSS with the email content
-  const combinedContent = IFRAME_BASE_CSS + contentToLoad;
-
-  // Replace special characters in srcdoc to avoid breaking the HTML attribute.
-  // Primarily " and &, but also ' can be problematic.
-  const iframeSrcDoc = combinedContent.replace(/"/g, '&quot;');
-
-
-  // Construct the HTML for the new window. This HTML will contain an iframe.
-  // IFRAME_BASE_CSS is now injected via combinedContent into iframeSrcDoc.
-  const newWindowHtml = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="UTF-8">
-      <title>${viewData.subject.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</title>
-      <style>
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
-        iframe { width: 100%; height: 100%; border: none; }
-      </style>
-    </head>
-    <body>
-      <iframe srcdoc="${iframeSrcDoc}" sandbox="allow-popups allow-same-origin allow-scripts"></iframe>
-
-    </body>
-    </html>
-  `;
-  // Note on sandbox: "allow-scripts" is included as Gmail content can have legitimate (sanitized) scripts.
-  // "allow-same-origin" is needed for many things to work if the email tries to use it, though srcdoc has a null origin.
-  // Consider if "allow-forms" is needed if emails often contain forms.
-
-  const emailViewWindow = new BrowserWindow({
-    width: 800,
-    height: 700,
-    title: viewData.subject || 'Email Preview',
-    webPreferences: {
-      // No nodeIntegration or contextIsolation needed for this simple view if not interacting with Node.js APIs from its content.
-      // Default webPreferences are generally safer.
-      // Ensure `webviewTag` is false if not used, `nodeIntegration` is false, `contextIsolation` is true.
-      // For a window loading remote-ish content (even via srcdoc), keep defaults:
-      nodeIntegration: false,
-      contextIsolation: true,
-      webSecurity: true, // Important
-      // No preload script needed unless we want to expose specific APIs to this window.
-    },
-    show: false // Don't show immediately, wait for content to be ready (or nearly)
-  });
-
-  // Add to our set
-  openEmailViewWindows.add(emailViewWindow);
-
-  // Handle window closure
-  emailViewWindow.on('closed', () => {
-    console.log(`Email view window for subject "${viewData.subject}" closed.`);
-    openEmailViewWindows.delete(emailViewWindow);
-  });
-
-  // Load the HTML content using a data URL
-  emailViewWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(newWindowHtml)}`);
-
-  emailViewWindow.once('ready-to-show', () => {
-    emailViewWindow.show();
-    emailViewWindow.focus(); // Add this line
-  });
-
-  // Optional: Open DevTools for this new window for debugging
-  // emailViewWindow.webContents.openDevTools();
 }
 
 app.on('window-all-closed', () => {
@@ -811,7 +774,115 @@ function closeNotificationWithAnimation(notificationWindow) {
   }
 }
 
-const IFRAME_BASE_CSS = `
+// Dynamically generated IFRAME CSS
+function generateIframeCss(theme) {
+  return `
+      <style>
+        body {
+          margin: 10px;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+          font-size: 14px;
+          line-height: 1.6;
+          color: ${theme['--main-text']};
+          background-color: ${theme['--primary-bg']};
+          word-wrap: break-word;
+          overflow-wrap: break-word;
+          box-sizing: border-box;
+          overflow-x: auto;
+        }
+        a {
+          color: ${theme['--accent-purple']};
+          text-decoration: none;
+        }
+        a:hover {
+          color: ${theme['--lighter-purple']};
+          text-decoration: underline;
+        }
+        img {
+          max-width: 100%;
+          height: auto;
+          display: block;
+          margin: 5px 0;
+        }
+        p, div, li {
+            color: ${theme['--main-text']};
+        }
+        table {
+          table-layout: auto;
+          width: auto;
+          border-collapse: collapse;
+          margin-bottom: 1em;
+          border: 1px solid ${theme['--border-color']};
+        }
+        td, th {
+          border: 1px solid ${theme['--border-color']};
+          padding: 8px;
+          text-align: left;
+          word-wrap: break-word;
+          overflow-wrap: break-word;
+          min-width: 0;
+        }
+        th {
+          background-color: ${theme['--secondary-bg']};
+          color: ${theme['--main-text']};
+          font-weight: bold;
+        }
+        blockquote {
+            border-left: 3px solid ${theme['--accent-purple']};
+            background-color: ${theme['--secondary-bg']};
+            color: ${theme['--secondary-text']};
+            padding: 10px 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        pre {
+          white-space: pre-wrap;
+          word-wrap: break-word;
+          overflow-x: auto;
+          background-color: ${theme['--secondary-bg']};
+          color: ${theme['--secondary-text']};
+          border: 1px solid ${theme['--border-color']};
+          padding: 12px;
+          border-radius: 4px;
+          max-width: 100%;
+          box-sizing: border-box;
+        }
+        ul, ol {
+          padding-left: 20px;
+          color: ${theme['--main-text']};
+        }
+        li {
+          margin-bottom: 5px;
+        }
+        h1, h2, h3, h4, h5, h6 {
+          color: ${theme['--main-text']};
+          margin-top: 1em;
+          margin-bottom: 0.5em;
+        }
+        /* Scrollbars */
+        ::-webkit-scrollbar {
+          width: 8px;
+          height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+          background: ${theme['--primary-bg']};
+        }
+        ::-webkit-scrollbar-thumb {
+          background: ${theme['--button-bg']};
+          border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+          background: ${theme['--button-hover-bg']};
+        }
+      </style>
+      `;
+}
+
+// Global variable for IFRAME_BASE_CSS, initialized with the default theme from settings
+let IFRAME_BASE_CSS = generateIframeCss(themePalettes[settings.appearanceTheme] || themePalettes.dark);
+
+
+const IFRAME_BASE_CSS_OLD = `
       <style>
         /* Theme Colors (comments for reference, actual values used directly)
           --primary-bg: #2C2F33;
@@ -1998,9 +2069,14 @@ ipcMain.handle('start-monitoring', async () => {
 ipcMain.handle('stop-monitoring', () => stopMonitoring());
 
 ipcMain.handle('update-settings', (event, newSettings) => {
+  const oldTheme = settings.appearanceTheme;
   settings = { ...settings, ...newSettings };
-  console.log('Settings updated:', settings);
-  return settings;
+  if (newSettings.appearanceTheme && newSettings.appearanceTheme !== oldTheme) {
+    IFRAME_BASE_CSS = generateIframeCss(themePalettes[newSettings.appearanceTheme] || themePalettes.dark);
+    console.log(`IFRAME_BASE_CSS updated for theme: ${newSettings.appearanceTheme}`);
+  }
+  console.log('Settings updated in main.js:', settings);
+  return settings; // Return the updated settings object
 });
 
 ipcMain.handle('get-settings', () => settings);

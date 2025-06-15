@@ -6,7 +6,55 @@ let settings = {
   enableReadTime: true,
   speakSenderName: true, 
   speakSubject: true,
-  viewEmailPreference: 'appWindow' // Added new setting
+  appearanceTheme: 'dark' // Default theme
+};
+
+const themes = {
+  dark: { // Current default theme - values from :root in index.html
+    '--primary-bg': '#2C2F33',
+    '--secondary-bg': '#23272A',
+    '--tertiary-bg': '#36393F',
+    '--main-text': '#FFFFFF',
+    '--secondary-text': '#B9BBBE',
+    '--accent-purple': '#7289DA',
+    '--lighter-purple': '#8A9DF2',
+    '--button-bg': '#4F545C',
+    '--button-hover-bg': '#5D6269',
+    '--success-color': '#43B581',
+    '--error-color': '#F04747',
+    '--warning-color': '#FAA61A',
+    '--border-color': '#40444B'
+  },
+  light: {
+    '--primary-bg': '#FFFFFF',
+    '--secondary-bg': '#F2F3F5', // Light grey for cards/panels
+    '--tertiary-bg': '#E3E5E8',  // Slightly darker grey for headers or distinct sections
+    '--main-text': '#060607',    // Very dark grey/black for main text
+    '--secondary-text': '#5F6772', // Medium grey for secondary text
+    '--accent-purple': '#5865F2', // Discord-like purple, slightly adjusted for light theme
+    '--lighter-purple': '#7983F5',
+    '--button-bg': '#E3E5E8',    // Buttons can be light grey
+    '--button-hover-bg': '#D4D7DC', // Darker hover for light grey buttons
+    '--success-color': '#2DC770',
+    '--error-color': '#ED4245',
+    '--warning-color': '#E67E22',
+    '--border-color': '#DCDFE4'  // Light border color
+  },
+  midnight: {
+    '--primary-bg': '#1A1C1E',    // Very dark (almost black) blue/grey
+    '--secondary-bg': '#111214',  // Even darker for panels
+    '--tertiary-bg': '#202225',   // Slightly lighter dark for headers
+    '--main-text': '#E0E0E0',    // Off-white/light grey text
+    '--secondary-text': '#A0A0A0', // Medium grey secondary text
+    '--accent-purple': '#6A79CC', // Muted purple for midnight
+    '--lighter-purple': '#808EE0',
+    '--button-bg': '#2A2D31',    // Dark buttons
+    '--button-hover-bg': '#35393E', // Slightly lighter hover for dark buttons
+    '--success-color': '#3BA55D',
+    '--error-color': '#D83C3E',
+    '--warning-color': '#D9822B',
+    '--border-color': '#2D2F33'   // Dark border color
+  }
 };
 
 // UI Elements
@@ -172,16 +220,17 @@ function updateSettingsUI() {
   document.getElementById('speakSenderNameToggle').disabled = !voiceToggleState;
   document.getElementById('speakSubjectToggle').disabled = !voiceToggleState;
 
-  // Update View Email Preference toggle switches
-  const viewInAppWindowToggle = document.getElementById('viewInAppWindowToggle');
-  const viewInGmailToggle = document.getElementById('viewInGmailToggle');
+  // Update Theme Radio Buttons
+  const themeDark = document.getElementById('themeDark');
+  const themeLight = document.getElementById('themeLight');
+  const themeMidnight = document.getElementById('themeMidnight');
 
-  if (settings.viewEmailPreference === 'gmail') {
-    viewInGmailToggle.checked = true;
-    viewInAppWindowToggle.checked = false;
-  } else { // Default to 'appWindow'
-    viewInAppWindowToggle.checked = true;
-    viewInGmailToggle.checked = false;
+  if (settings.appearanceTheme === 'light') {
+    themeLight.checked = true;
+  } else if (settings.appearanceTheme === 'midnight') {
+    themeMidnight.checked = true;
+  } else { // Default to dark
+    themeDark.checked = true;
   }
 }
 
@@ -204,6 +253,7 @@ async function loadSettings() {
   try {
     settings = await window.gmail.getSettings();
     updateSettingsUI();
+    applyTheme(settings.appearanceTheme); // Apply initial theme
   } catch (error) {
     console.error('Error loading settings:', error);
     showNotification('Failed to load settings', 'error');
@@ -224,13 +274,15 @@ async function saveSettings() {
     settings.showUrgency = urgencyToggle.checked; // Add this
     settings.enableReadTime = readTimeToggle.checked; 
     settings.speakSenderName = speakSenderNameToggle.checked; 
-    settings.speakSubject = speakSubjectToggle.checked;     
+    settings.speakSubject = speakSubjectToggle.checked;
 
-    // Save View Email Preference from the two toggle switches
-    if (document.getElementById('viewInGmailToggle').checked) {
-      settings.viewEmailPreference = 'gmail';
-    } else { // If Gmail is not checked, App Window must be the preference
-      settings.viewEmailPreference = 'appWindow';
+    // Save Appearance Theme
+    if (document.getElementById('themeLight').checked) {
+      settings.appearanceTheme = 'light';
+    } else if (document.getElementById('themeMidnight').checked) {
+      settings.appearanceTheme = 'midnight';
+    } else {
+      settings.appearanceTheme = 'dark';
     }
     
     await window.gmail.updateSettings(settings);
@@ -395,35 +447,27 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('urgencyToggle').addEventListener('change', debouncedSave);
   document.getElementById('readTimeToggle').addEventListener('change', debouncedSave); 
   document.getElementById('speakSenderNameToggle').addEventListener('change', debouncedSave); 
-  document.getElementById('speakSubjectToggle').addEventListener('change', debouncedSave);   
+  document.getElementById('speakSubjectToggle').addEventListener('change', debouncedSave);
 
-  // Event listeners for the two new mutually exclusive toggle switches
-  const viewInAppWindowToggle = document.getElementById('viewInAppWindowToggle');
-  const viewInGmailToggle = document.getElementById('viewInGmailToggle');
+  // Theme Radio Button Listeners
+  const themeDarkRadio = document.getElementById('themeDark');
+  const themeLightRadio = document.getElementById('themeLight');
+  const themeMidnightRadio = document.getElementById('themeMidnight');
 
-  viewInAppWindowToggle.addEventListener('change', () => {
-    if (viewInAppWindowToggle.checked) {
-      viewInGmailToggle.checked = false;
-    } else {
-      // Prevent unchecking if it's the only one checked (i.e., Gmail is also unchecked)
-      // This ensures at least one option is always selected.
-      if (!viewInGmailToggle.checked) {
-        viewInAppWindowToggle.checked = true; 
-      }
-    }
+  function handleThemeChange(themeValue) {
+    // No need to update settings.appearanceTheme here, saveSettings will do it.
     debouncedSave();
+    applyTheme(themeValue); // Call placeholder function
+  }
+
+  themeDarkRadio.addEventListener('change', () => {
+    if (themeDarkRadio.checked) handleThemeChange('dark');
   });
-
-  viewInGmailToggle.addEventListener('change', () => {
-    if (viewInGmailToggle.checked) {
-      viewInAppWindowToggle.checked = false;
-    } else {
-      // Prevent unchecking if it's the only one checked
-      if (!viewInAppWindowToggle.checked) {
-        viewInGmailToggle.checked = true;
-      }
-    }
-    debouncedSave();
+  themeLightRadio.addEventListener('change', () => {
+    if (themeLightRadio.checked) handleThemeChange('light');
+  });
+  themeMidnightRadio.addEventListener('change', () => {
+    if (themeMidnightRadio.checked) handleThemeChange('midnight');
   });
 
   document.getElementById('voiceToggle').addEventListener('change', () => {
@@ -475,6 +519,25 @@ window.addEventListener('beforeunload', () => {
   }
   // If other .on listeners are added, their cleanup functions should be called here too.
 });
+
+// --- THEME APPLICATION LOGIC ---
+function applyTheme(themeName) {
+  console.log('Applying theme:', themeName);
+  const selectedTheme = themes[themeName] || themes.dark; // Default to dark if theme not found
+
+  for (const variable in selectedTheme) {
+    document.documentElement.style.setProperty(variable, selectedTheme[variable]);
+  }
+
+  // Special handling for iframe text color based on theme
+  // This is a simplified approach. A more robust solution might involve sending theme info to the iframe.
+  // const iframeTextColor = (themeName === 'light') ? '#333333' : '#FFFFFF'; // Example: black for light, white for dark/midnight
+  // Update IFRAME_BASE_CSS if it's used to style the iframe directly from renderer.js
+  // However, the IFRAME_BASE_CSS in renderer.js is currently set for light background.
+  // The actual email content styling is handled in main.js by `renderEmailHTML`.
+  // We need to ensure main.js is aware of the theme to style the email iframe content appropriately.
+  // For now, we'll focus on the main app theme. The iframe part will be addressed in step 4 if needed.
+}
 
 // --- NOTIFIABLE AUTHORS UI LOGIC ---
 
