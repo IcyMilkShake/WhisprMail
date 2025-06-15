@@ -140,7 +140,6 @@ const IFRAME_BASE_CSS = `
 
 if (viewAllBtn) {
   viewAllBtn.addEventListener('click', async () => {
-    setLoading(viewAllBtn, true);
     try {
       // In the next step, 'get-latest-email-html' IPC handler in main.js will be created.
       // For now, we expect it to return an object: { success: true, html: '...', css: '...' } or { success: false, error: '...' }
@@ -164,8 +163,6 @@ if (viewAllBtn) {
       console.error('Error in View All button click listener:', error);
       showNotification('Failed to process View All request: ' + error.message, 'error');
       emailPreviewFrame.srcdoc = ''; 
-    } finally {
-      setLoading(viewAllBtn, false);
     }
   });
 }
