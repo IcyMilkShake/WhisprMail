@@ -30,46 +30,81 @@ const closeEmailPreviewModal = document.getElementById('closeEmailPreviewModal')
 const emailPreviewFrame = document.getElementById('emailPreviewFrame');
 const emailPreviewTitle = document.getElementById('emailPreviewTitle');
 
+
+// IFRAME_BASE_CSS (intended to be identical to main.js version)
+const IFRAME_BASE_CSS = `
+      <style>
+        body {
+          margin: 0;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+          font-size: 14px;
+          line-height: 1.5;
+          color: #333;
+          background-color: #fff;
+          word-wrap: break-word;
+          overflow-wrap: break-word;
+          box-sizing: border-box;
+          overflow-x: auto;
+        }
+        a {
+          color: #1a73e8;
+        }
+        a:hover {
+        }
+        img {
+          max-width: 100%;
+          height: auto;
+        }
+        p, div, li {
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+        table {
+          table-layout: auto;
+          width: auto;
+          border-collapse: collapse;
+        }
+        td, th {
+          border: none;
+          word-wrap: break-word;
+          overflow-wrap: break-word;
+          min-width: 0;
+        }
+        pre {
+          white-space: pre-wrap;
+          word-wrap: break-word;
+          overflow-x: auto;
+          background: #f4f4f4;
+          padding: 10px;
+          border-radius: 4px;
+          max-width: 100%;
+          box-sizing: border-box;
+        }
+        ul, ol {
+        }
+        * {
+          outline: none !important;
+          outline-style: none !important;
+          -moz-outline-style: none !important;
+        }
+      </style>
+    `;
+
 if (viewAllBtn) {
   viewAllBtn.addEventListener('click', async () => {
     setLoading(viewAllBtn, true);
     try {
-      // Expects result: { success: true, html: '...', css: '...', messageId: '...' } or { success: false, error: '...' }
-      const result = await window.gmail.invoke('get-latest-email-html');
+      // In the next step, 'get-latest-email-html' IPC handler in main.js will be created.
+      // For now, we expect it to return an object: { success: true, html: '...', css: '...' } or { success: false, error: '...' }
+      const result = await window.gmail.invoke('get-latest-email-html'); // Using invoke as it's a new handler
 
-      if (result && result.success) {
-        // Check user preference for viewing email
-        if (settings.viewEmailPreference === 'gmail') {
-          if (result.messageId) {
-            // This IPC handler 'open-email-in-gmail' will be created in the next step
-            await window.gmail.invoke('open-email-in-gmail', result.messageId);
-            // Close the modal, in case it was opened by a previous action or state
-            emailPreviewModal.style.display = 'none'; 
-            emailPreviewFrame.srcdoc = ''; 
-          } else {
-            showNotification('Could not open in Gmail: Email ID is missing.', 'error');
-            // Fallback: if messageId is missing, try to display in modal if HTML is available
-            if (result.html) {
-              const cssToUse = result.css;
-              if (!cssToUse) console.warn("No CSS provided for email preview (Gmail fallback).");
-              emailPreviewFrame.srcdoc = (cssToUse || "") + result.html;
-              emailPreviewModal.style.display = 'block';
-            } else {
-              showNotification('No content available to display.', 'info');
-              emailPreviewFrame.srcdoc = '';
-            }
-          }
-        } else { // Default to 'appWindow' or any other preference
-          if (result.html) {
-            const cssToUse = result.css;
-            if (!cssToUse) console.warn("No CSS provided for email preview (app window).");
-            emailPreviewFrame.srcdoc = (cssToUse || "") + result.html;
-            emailPreviewModal.style.display = 'block';
-          } else {
-            showNotification('No HTML content found for preview.', 'info');
-            emailPreviewFrame.srcdoc = ''; 
-          }
-        }
+      if (result && result.success && result.html) {
+        // If CSS is also passed from main.js, use result.css. Otherwise, use the local IFRAME_BASE_CSS.
+        // For consistency, we are now making the local IFRAME_BASE_CSS match the main.js one.
+        const cssToUse = IFRAME_BASE_CSS;
+        emailPreviewFrame.srcdoc = cssToUse + result.html;
+        emailPreviewModal.style.display = 'block';
+
       } else if (result && result.error) {
         showNotification(result.error, 'error');
         emailPreviewFrame.srcdoc = ''; 
