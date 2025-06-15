@@ -10,6 +10,7 @@ const puppeteer = require('puppeteer');
 require('dotenv').config();
 
 const NOTIFIABLE_AUTHORS_PATH = path.join(app.getPath('userData'), 'notifiable_authors.json');
+const SETTINGS_PATH = path.join(app.getPath('userData'), 'app_settings.json');
 let notifiableAuthors = []; // To store email addresses
 
 // --- GLOBAL VARIABLES & CONSTANTS ---
@@ -173,8 +174,11 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  loadAppSettings(); // Load settings first
+  await saveAppSettings(); // Ensure file exists with current/default settings
+
   createWindow();
-  loadNotifiableAuthors();
+  loadNotifiableAuthors(); // This can come after loading app settings
   try {
     await initializeGmail();
     await startMonitoring();
@@ -2059,7 +2063,7 @@ ipcMain.handle('start-monitoring', async () => {
 
 ipcMain.handle('stop-monitoring', () => stopMonitoring());
 
-ipcMain.handle('update-settings', (event, newSettings) => {
+ipcMain.handle('update-settings', async (event, newSettings) => { // Made handler async
   const oldTheme = settings.appearanceTheme;
   settings = { ...settings, ...newSettings };
   if (newSettings.appearanceTheme && newSettings.appearanceTheme !== oldTheme) {
@@ -2067,7 +2071,8 @@ ipcMain.handle('update-settings', (event, newSettings) => {
     console.log(`IFRAME_BASE_CSS updated for theme: ${newSettings.appearanceTheme}`);
   }
   console.log('Settings updated in main.js:', settings);
-  return settings; // Return the updated settings object
+  await saveAppSettings(); // Save updated settings
+  return settings;
 });
 
 ipcMain.handle('get-settings', () => settings);
@@ -2177,6 +2182,39 @@ async function saveNotifiableAuthors() {
     console.log('Notifiable authors saved.');
   } catch (error) {
     console.error('Failed to save notifiable authors:', error);
+  }
+}
+
+function loadAppSettings() {
+  try {
+    if (fs.existsSync(SETTINGS_PATH)) {
+      const data = fs.readFileSync(SETTINGS_PATH, 'utf8');
+      const loadedSettingsFromFile = JSON.parse(data);
+      // Merge loaded settings with defaults.
+      // Defaults provide the structure and new settings.
+      // Loaded settings override defaults for existing keys.
+      settings = { ...settings, ...loadedSettingsFromFile };
+      console.log('Application settings loaded from file:', SETTINGS_PATH);
+    } else {
+      console.log('No application settings file found at', SETTINGS_PATH, '. Using default settings.');
+      // `settings` variable already holds the defaults, so no action needed here if file doesn't exist.
+    }
+  } catch (error) {
+    console.error('Failed to load application settings from', SETTINGS_PATH, ':', error);
+    // In case of error (e.g., corrupted file), fall back to default settings.
+    // `settings` variable should still hold the initial defaults if an error occurs during merge.
+    // To be absolutely sure, one could re-assign defaults here if the structure of `settings` could be compromised by a partial merge.
+    // However, the current spread syntax `{ ...settings, ...loadedSettingsFromFile }` should be safe.
+    // If `loadedSettingsFromFile` is malformed and `JSON.parse` throws, `settings` remains unchanged.
+  }
+}
+
+async function saveAppSettings() {
+  try {
+    await fs.promises.writeFile(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf8');
+    console.log('Application settings saved to:', SETTINGS_PATH);
+  } catch (error) {
+    console.error('Failed to save application settings to', SETTINGS_PATH, ':', error);
   }
 }
 
