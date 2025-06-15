@@ -473,18 +473,39 @@ async function summarizeText(text) {
     return text;
   }
 
+  console.log("Input text to summarizer.py:", text); // Added log
   return executePythonScript('summarizer.py', [], text)
     .then(result => {
       if (result && result.success && result.summary_text) {
         console.log("Summarization successful via Python script.");
-        return result.summary_text;
+        console.log("Summary text from summarizer.py:", result.summary_text);
+
+        const summary = result.summary_text;
+        const originalLength = text.length;
+        const summaryLength = summary.length;
+
+        // Condition for not effective summary:
+        // 1. Summary is longer than 75% of original, AND very close in length to original (e.g. less than 20 char diff)
+        // OR 2. Summary is actually longer than original (shouldn't happen with BART but good to check)
+        const notEffectiveReduction = (summaryLength > originalLength * 0.75 && (originalLength - summaryLength) < 20);
+        const longerThanOriginal = summaryLength >= originalLength; // Check if summary is same or longer
+
+        if (longerThanOriginal || notEffectiveReduction) {
+          console.log("Summarization deemed not effective or summary is same/longer than original. Returning original text. Original length:", originalLength, "Summary length:", summaryLength);
+          return text; // Return original text
+        } else {
+          console.log("Summarization effective. Original length:", originalLength, "Summary length:", summaryLength);
+          return summary; // Return the good summary
+        }
       } else {
         console.error(`Error or invalid response from summarizer.py: ${result?.error || 'Unknown error'}`);
+        console.error("Full result from summarizer.py (non-success or invalid):", result); // Added log
         return text; // Fallback to original text
       }
     })
     .catch(error => {
       console.error(`Summarization script execution failed: ${error.message}`);
+      console.error("Raw error object from executePythonScript in summarizeText:", error); // Added log
       return text; // Fallback to original text
     });
 }
@@ -2079,51 +2100,6 @@ ipcMain.handle('get-settings', () => settings);
 
 // Make sure IFRAME_BASE_CSS is accessible in this scope.
 // It's already defined globally in main.js, so it should be fine.
-
-ipcMain.handle('get-latest-email-html', async () => {
-  if (!gmail) {
-    try {
-      await initializeGmail();
-    } catch (e) {
-      console.error("Gmail init failed in get-latest-email-html:", e);
-      return { success: false, error: 'Gmail initialization failed. Cannot fetch email.' };
-    }
-  }
-  if (!gmail) {
-    return { success: false, error: 'Gmail is not available.' };
-  }
-
-  try {
-    const newEmails = await getNewEmails(); // Fetches unread emails
-    if (!newEmails || newEmails.length === 0) {
-      return { success: false, error: 'No unread emails found.' };
-    }
-
-    // Get the most recent unread email (first in the list)
-    const latestEmailMeta = newEmails[0];
-    if (!latestEmailMeta || !latestEmailMeta.id) {
-        return { success: false, error: 'Could not identify the latest email.' };
-    }
-
-    const emailDetails = await getEmailDetails(latestEmailMeta.id);
-
-    if (!emailDetails) {
-      return { success: false, error: 'Failed to fetch details for the latest email.' };
-    }
-
-    if (emailDetails.bodyHtml && emailDetails.bodyHtml.trim() !== '') {
-      return { success: true, html: emailDetails.bodyHtml, css: IFRAME_BASE_CSS };
-    } else {
-      // If there's no HTML body, we could opt to send plain text instead,
-      // or indicate that HTML view is not available.
-      // For this feature, mimicking Gmail implies HTML.
-      return { success: false, error: 'Latest email has no HTML content to display. You can view its plain text in notifications.' };
-    }
-  } catch (error) {
-    console.error('Error fetching latest email HTML for preview:', error);
-    return { success: false, error: 'An error occurred while retrieving email content: ' + error.message };
-  }
-});
 
 // --- NOTIFIABLE AUTHORS IPC HANDLERS ---
 ipcMain.handle('get-notifiable-authors', () => {
