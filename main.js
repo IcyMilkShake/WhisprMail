@@ -176,7 +176,7 @@ function createWindow() {
 app.whenReady().then(async () => {
   loadAppSettings(); // Load settings first
   await saveAppSettings(); // Ensure file exists with current/default settings
-
+  
   createWindow();
   loadNotifiableAuthors(); // This can come after loading app settings
   try {
@@ -2072,7 +2072,7 @@ ipcMain.handle('update-settings', async (event, newSettings) => { // Made handle
   }
   console.log('Settings updated in main.js:', settings);
   await saveAppSettings(); // Save updated settings
-  return settings;
+  return settings; 
 });
 
 ipcMain.handle('get-settings', () => settings);
