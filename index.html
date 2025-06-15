@@ -233,6 +233,62 @@
     .btn-check:hover, .btn-view-all:hover {
       background-color: var(--button-bg); /* Use standard button hover */
     }
+
+    .theme-button-group {
+      display: flex;
+      gap: 10px; /* Space between buttons */
+      margin-top: 10px; /* Space above the button group */
+      margin-bottom: 15px; /* Space below the button group */
+      padding: 10px; /* Padding around the group */
+      background-color: var(--tertiary-bg); /* Background for the group itself */
+      border-radius: 6px; /* Rounded corners for the group */
+      border: 1px solid var(--border-color);
+    }
+
+    .theme-btn {
+      flex-grow: 1; /* Make buttons share space equally */
+      background-color: var(--button-bg);
+      color: var(--main-text);
+      border: 1px solid var(--border-color);
+      border-radius: 5px;
+      padding: 8px 12px; /* Slightly adjusted padding */
+      font-size: 13px; /* Slightly smaller font */
+      font-weight: 500;
+      cursor: pointer;
+      transition: background-color 0.2s ease, transform 0.1s ease, border-color 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px; /* Space between icon and text */
+      text-align: center;
+    }
+
+    .theme-btn:hover {
+      background-color: var(--button-hover-bg);
+      transform: translateY(-1px);
+      border-color: var(--lighter-purple); /* Highlight border on hover */
+    }
+
+    .theme-btn.active {
+      background-color: var(--accent-purple);
+      color: var(--main-text); /* Ensure text is readable */
+      border-color: var(--lighter-purple); /* Stronger border for active state */
+      box-shadow: 0 0 8px var(--accent-purple); /* Add a glow effect */
+      transform: translateY(-1px); /* Keep it slightly elevated */
+    }
+
+    .theme-btn:disabled { /* If we ever need to disable them */
+      opacity: 0.5;
+      cursor: not-allowed;
+      background-color: var(--tertiary-bg);
+      transform: none;
+    }
+
+    /* Ensure icons within buttons are vertically aligned if needed */
+    .theme-btn span {
+      display: inline-flex;
+      align-items: center;
+    }
     
     /* Settings Panel already covered by .glass-card like styling */
     .settings-title {
@@ -648,34 +704,10 @@
           Appearance:
         </div>
 
-        <!-- Dark Theme Radio Button -->
-        <div class="setting-item">
-          <div class="setting-info">
-            <label for="themeDark" class="setting-label" style="font-size: 13px;">
-              <span>🌙</span> Dark
-            </label>
-          </div>
-          <input type="radio" id="themeDark" name="theme" value="dark" checked>
-        </div>
-
-        <!-- Light Theme Radio Button -->
-        <div class="setting-item">
-          <div class="setting-info">
-            <label for="themeLight" class="setting-label" style="font-size: 13px;">
-              <span>☀️</span> Light
-            </label>
-          </div>
-          <input type="radio" id="themeLight" name="theme" value="light">
-        </div>
-
-        <!-- Midnight Theme Radio Button -->
-        <div class="setting-item">
-          <div class="setting-info">
-            <label for="themeMidnight" class="setting-label" style="font-size: 13px;">
-              <span>🌃</span> Midnight
-            </label>
-          </div>
-          <input type="radio" id="themeMidnight" name="theme" value="midnight">
+        <div class="theme-button-group" style="margin-top: 10px; margin-bottom: 10px;"> <!-- Added margin-bottom for spacing -->
+          <button id="btnThemeDark" class="theme-btn"><span>🌙</span> Dark</button>
+          <button id="btnThemeLight" class="theme-btn"><span>☀️</span> Light</button>
+          <button id="btnThemeMidnight" class="theme-btn"><span>🌃</span> Midnight</button>
         </div>
       </div>
 

@@ -71,6 +71,10 @@ const addNotifiableAuthorBtn = document.getElementById('addNotifiableAuthorBtn')
 const notifiableAuthorsListUL = document.getElementById('notifiableAuthorsList'); // Renamed for clarity
 const noNotifiableAuthorsMsg = document.getElementById('noNotifiableAuthorsMsg');
 
+const btnThemeDark = document.getElementById('btnThemeDark');
+const btnThemeLight = document.getElementById('btnThemeLight');
+const btnThemeMidnight = document.getElementById('btnThemeMidnight');
+
 // At the top of renderer.js, add new UI element references
 const viewAllBtn = document.getElementById('viewAllBtn');
 const emailPreviewModal = document.getElementById('emailPreviewModal');
@@ -217,18 +221,7 @@ function updateSettingsUI() {
   document.getElementById('speakSenderNameToggle').disabled = !voiceToggleState;
   document.getElementById('speakSubjectToggle').disabled = !voiceToggleState;
 
-  // Update Theme Radio Buttons
-  const themeDark = document.getElementById('themeDark');
-  const themeLight = document.getElementById('themeLight');
-  const themeMidnight = document.getElementById('themeMidnight');
-
-  if (settings.appearanceTheme === 'light') {
-    themeLight.checked = true;
-  } else if (settings.appearanceTheme === 'midnight') {
-    themeMidnight.checked = true;
-  } else { // Default to dark
-    themeDark.checked = true;
-  }
+  updateActiveThemeButton(settings.appearanceTheme);
 }
 
 function setLoading(element, loading) {
@@ -273,14 +266,7 @@ async function saveSettings() {
     settings.speakSenderName = speakSenderNameToggle.checked; 
     settings.speakSubject = speakSubjectToggle.checked;
 
-    // Save Appearance Theme
-    if (document.getElementById('themeLight').checked) {
-      settings.appearanceTheme = 'light';
-    } else if (document.getElementById('themeMidnight').checked) {
-      settings.appearanceTheme = 'midnight';
-    } else {
-      settings.appearanceTheme = 'dark';
-    }
+    // settings.appearanceTheme is now set directly by button click handlers
     
     await window.gmail.updateSettings(settings);
     showSuccessFlash(document.querySelector('.settings-panel'));
@@ -446,26 +432,33 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('speakSenderNameToggle').addEventListener('change', debouncedSave); 
   document.getElementById('speakSubjectToggle').addEventListener('change', debouncedSave);
 
-  // Theme Radio Button Listeners
-  const themeDarkRadio = document.getElementById('themeDark');
-  const themeLightRadio = document.getElementById('themeLight');
-  const themeMidnightRadio = document.getElementById('themeMidnight');
-
-  function handleThemeChange(themeValue) {
-    // No need to update settings.appearanceTheme here, saveSettings will do it.
-    debouncedSave();
-    applyTheme(themeValue); // Call placeholder function
+  // New Theme Button Listeners
+  if (btnThemeDark) { // Add checks to ensure elements exist
+    btnThemeDark.addEventListener('click', () => {
+      settings.appearanceTheme = 'dark';
+      applyTheme('dark');
+      saveSettings(); // Direct call, or debouncedSave if preferred
+      updateActiveThemeButton('dark');
+    });
   }
 
-  themeDarkRadio.addEventListener('change', () => {
-    if (themeDarkRadio.checked) handleThemeChange('dark');
-  });
-  themeLightRadio.addEventListener('change', () => {
-    if (themeLightRadio.checked) handleThemeChange('light');
-  });
-  themeMidnightRadio.addEventListener('change', () => {
-    if (themeMidnightRadio.checked) handleThemeChange('midnight');
-  });
+  if (btnThemeLight) {
+    btnThemeLight.addEventListener('click', () => {
+      settings.appearanceTheme = 'light';
+      applyTheme('light');
+      saveSettings();
+      updateActiveThemeButton('light');
+    });
+  }
+
+  if (btnThemeMidnight) {
+    btnThemeMidnight.addEventListener('click', () => {
+      settings.appearanceTheme = 'midnight';
+      applyTheme('midnight');
+      saveSettings();
+      updateActiveThemeButton('midnight');
+    });
+  }
 
   document.getElementById('voiceToggle').addEventListener('change', () => {
     // Update the settings object directly for immediate reflection in updateSettingsUI
@@ -534,6 +527,20 @@ function applyTheme(themeName) {
   // The actual email content styling is handled in main.js by `renderEmailHTML`.
   // We need to ensure main.js is aware of the theme to style the email iframe content appropriately.
   // For now, we'll focus on the main app theme. The iframe part will be addressed in step 4 if needed.
+}
+
+function updateActiveThemeButton(themeName) {
+  if (btnThemeDark) btnThemeDark.classList.remove('active');
+  if (btnThemeLight) btnThemeLight.classList.remove('active');
+  if (btnThemeMidnight) btnThemeMidnight.classList.remove('active');
+
+  if (themeName === 'dark' && btnThemeDark) {
+    btnThemeDark.classList.add('active');
+  } else if (themeName === 'light' && btnThemeLight) {
+    btnThemeLight.classList.add('active');
+  } else if (themeName === 'midnight' && btnThemeMidnight) {
+    btnThemeMidnight.classList.add('active');
+  }
 }
 
 // --- NOTIFIABLE AUTHORS UI LOGIC ---
