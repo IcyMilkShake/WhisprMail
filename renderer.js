@@ -4,9 +4,8 @@ let settings = {
   enableVoiceReading: true,
   showUrgency: true,
   enableReadTime: true,
-  speakSenderName: true, 
-  speakSubject: true,
-  viewEmailPreference: 'appWindow' // Added new setting
+  speakSenderName: true, // <-- ADD THIS LINE
+  speakSubject: true     // <-- ADD THIS LINE
 };
 
 // UI Elements
@@ -30,62 +29,124 @@ const closeEmailPreviewModal = document.getElementById('closeEmailPreviewModal')
 const emailPreviewFrame = document.getElementById('emailPreviewFrame');
 const emailPreviewTitle = document.getElementById('emailPreviewTitle');
 
-
 // IFRAME_BASE_CSS (intended to be identical to main.js version)
 const IFRAME_BASE_CSS = `
       <style>
+        /* Theme Colors (comments for reference, actual values used directly)
+          --primary-bg: #2C2F33;
+          --secondary-bg: #23272A;
+          --tertiary-bg: #36393F;
+          --main-text: #FFFFFF;
+          --secondary-text: #B9BBBE;
+          --accent-purple: #7289DA;
+          --lighter-purple: #8A9DF2;
+          --button-bg: #4F545C;
+          --button-hover-bg: #5D6269;
+          --border-color: #40444B;
+          --success-color: #43B581;
+          --error-color: #F04747;
+          --warning-color: #FAA61A;
+        */
         body {
-          margin: 0;
+          margin: 10px; /* Added some margin for better aesthetics */
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
           font-size: 14px;
-          line-height: 1.5;
-          color: #333;
-          background-color: #fff;
+          line-height: 1.6; /* Slightly increased line height */
+          color: #FFFFFF; /* --main-text */
+          background-color: #2C2F33; /* --primary-bg */
           word-wrap: break-word;
           overflow-wrap: break-word;
           box-sizing: border-box;
           overflow-x: auto;
         }
         a {
-          color: #1a73e8;
+          color: #7289DA; /* --accent-purple */
+          text-decoration: none; /* Remove underline by default */
         }
         a:hover {
+          color: #8A9DF2; /* --lighter-purple */
+          text-decoration: underline; /* Underline on hover */
         }
         img {
           max-width: 100%;
           height: auto;
+          display: block; /* Block display for proper spacing */
+          margin: 5px 0; /* Some margin around images */
         }
-        p, div, li {
-            word-wrap: break-word;
-            overflow-wrap: break-word;
+        p, div, li { /* General text containers */
+            color: #FFFFFF; /* --main-text, ensure inheritance or set explicitly */
         }
         table {
           table-layout: auto;
           width: auto;
           border-collapse: collapse;
+          margin-bottom: 1em; /* Spacing below tables */
+          border: 1px solid #40444B; /* --border-color */
         }
         td, th {
-          border: none;
+          border: 1px solid #40444B; /* --border-color */
+          padding: 8px;
+          text-align: left; /* Align text to left by default */
           word-wrap: break-word;
           overflow-wrap: break-word;
           min-width: 0;
+        }
+        th { /* Table headers */
+          background-color: #23272A; /* --secondary-bg */
+          color: #FFFFFF; /* --main-text */
+          font-weight: bold; /* Make headers bold */
+        }
+        blockquote {
+            border-left: 3px solid #7289DA; /* --accent-purple */
+            background-color: #23272A; /* --secondary-bg */
+            color: #B9BBBE; /* --secondary-text */
+            padding: 10px 15px; /* Padding inside blockquote */
+            margin: 10px 0; /* Margin around blockquote */
+            border-radius: 4px; /* Rounded corners */
         }
         pre {
           white-space: pre-wrap;
           word-wrap: break-word;
           overflow-x: auto;
-          background: #f4f4f4;
-          padding: 10px;
+          background-color: #23272A; /* --secondary-bg */
+          color: #B9BBBE; /* --secondary-text */
+          border: 1px solid #40444B; /* --border-color */
+          padding: 12px; /* Increased padding */
           border-radius: 4px;
           max-width: 100%;
           box-sizing: border-box;
         }
         ul, ol {
+          padding-left: 20px; /* Standard padding for lists */
+          color: #FFFFFF; /* --main-text */
+        }
+        li {
+          margin-bottom: 5px; /* Spacing between list items */
+        }
+        h1, h2, h3, h4, h5, h6 {
+          color: #FFFFFF; /* --main-text */
+          margin-top: 1em; /* Space above headings */
+          margin-bottom: 0.5em; /* Space below headings */
+        }
+        /* Scrollbars */
+        ::-webkit-scrollbar {
+          width: 8px;
+          height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+          background: #2C2F33; /* --primary-bg */
+        }
+        ::-webkit-scrollbar-thumb {
+          background: #4F545C; /* --button-bg */
+          border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+          background: #5D6269; /* --button-hover-bg */
         }
         * {
           outline: none !important;
-          outline-style: none !important;
-          -moz-outline-style: none !important;
+          outline-style: none !important; /* Be explicit */
+          -moz-outline-style: none !important; /* Firefox specific if needed */
         }
       </style>
     `;
@@ -104,18 +165,17 @@ if (viewAllBtn) {
         const cssToUse = IFRAME_BASE_CSS;
         emailPreviewFrame.srcdoc = cssToUse + result.html;
         emailPreviewModal.style.display = 'block';
-
       } else if (result && result.error) {
         showNotification(result.error, 'error');
-        emailPreviewFrame.srcdoc = ''; 
+        emailPreviewFrame.srcdoc = ''; // Clear frame on error
       } else {
-        showNotification('No email content found or an unknown error occurred when fetching for View All.', 'info');
-        emailPreviewFrame.srcdoc = ''; 
+        showNotification('No email content found or an unknown error occurred.', 'info');
+        emailPreviewFrame.srcdoc = ''; // Clear frame
       }
     } catch (error) {
-      console.error('Error in View All button click listener:', error);
-      showNotification('Failed to process View All request: ' + error.message, 'error');
-      emailPreviewFrame.srcdoc = ''; 
+      console.error('Error fetching latest email HTML:', error);
+      showNotification('Failed to fetch email preview: ' + error.message, 'error');
+      emailPreviewFrame.srcdoc = ''; // Clear frame on critical error
     } finally {
       setLoading(viewAllBtn, false);
     }
@@ -160,29 +220,13 @@ function updateSettingsUI() {
   document.getElementById('voiceToggle').checked = settings.enableVoiceReading;
   document.getElementById('urgencyToggle').checked = settings.showUrgency; // Add this line
   document.getElementById('readTimeToggle').checked = settings.enableReadTime; // <-- ADD THIS LINE
-  document.getElementById('summaryToggle').checked = settings.enableSummary;
-  document.getElementById('voiceToggle').checked = settings.enableVoiceReading;
-  document.getElementById('urgencyToggle').checked = settings.showUrgency;
-  document.getElementById('readTimeToggle').checked = settings.enableReadTime;
-  document.getElementById('speakSenderNameToggle').checked = settings.speakSenderName; 
-  document.getElementById('speakSubjectToggle').checked = settings.speakSubject;   
+  document.getElementById('speakSenderNameToggle').checked = settings.speakSenderName; // <-- ADD THIS LINE
+  document.getElementById('speakSubjectToggle').checked = settings.speakSubject;   // <-- ADD THIS LINE
 
   // Additionally, enable/disable sub-toggles based on voiceToggle state
-  const voiceToggleState = document.getElementById('voiceToggle').checked; 
+  const voiceToggleState = document.getElementById('voiceToggle').checked; // Corrected variable name
   document.getElementById('speakSenderNameToggle').disabled = !voiceToggleState;
   document.getElementById('speakSubjectToggle').disabled = !voiceToggleState;
-
-  // Update View Email Preference toggle switches
-  const viewInAppWindowToggle = document.getElementById('viewInAppWindowToggle');
-  const viewInGmailToggle = document.getElementById('viewInGmailToggle');
-
-  if (settings.viewEmailPreference === 'gmail') {
-    viewInGmailToggle.checked = true;
-    viewInAppWindowToggle.checked = false;
-  } else { // Default to 'appWindow'
-    viewInAppWindowToggle.checked = true;
-    viewInGmailToggle.checked = false;
-  }
 }
 
 function setLoading(element, loading) {
@@ -222,16 +266,9 @@ async function saveSettings() {
     settings.enableSummary = summaryToggle.checked;
     settings.enableVoiceReading = voiceToggle.checked;
     settings.showUrgency = urgencyToggle.checked; // Add this
-    settings.enableReadTime = readTimeToggle.checked; 
-    settings.speakSenderName = speakSenderNameToggle.checked; 
-    settings.speakSubject = speakSubjectToggle.checked;     
-
-    // Save View Email Preference from the two toggle switches
-    if (document.getElementById('viewInGmailToggle').checked) {
-      settings.viewEmailPreference = 'gmail';
-    } else { // If Gmail is not checked, App Window must be the preference
-      settings.viewEmailPreference = 'appWindow';
-    }
+    settings.enableReadTime = readTimeToggle.checked; // <-- ADD THIS LINE
+    settings.speakSenderName = speakSenderNameToggle.checked; // <-- ADD THIS LINE
+    settings.speakSubject = speakSubjectToggle.checked;     // <-- ADD THIS LINE
     
     await window.gmail.updateSettings(settings);
     showSuccessFlash(document.querySelector('.settings-panel'));
@@ -394,37 +431,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // document.getElementById('voiceToggle').addEventListener('change', debouncedSave); // Original listener removed/modified below
   document.getElementById('urgencyToggle').addEventListener('change', debouncedSave);
   document.getElementById('readTimeToggle').addEventListener('change', debouncedSave); 
-  document.getElementById('speakSenderNameToggle').addEventListener('change', debouncedSave); 
-  document.getElementById('speakSubjectToggle').addEventListener('change', debouncedSave);   
-
-  // Event listeners for the two new mutually exclusive toggle switches
-  const viewInAppWindowToggle = document.getElementById('viewInAppWindowToggle');
-  const viewInGmailToggle = document.getElementById('viewInGmailToggle');
-
-  viewInAppWindowToggle.addEventListener('change', () => {
-    if (viewInAppWindowToggle.checked) {
-      viewInGmailToggle.checked = false;
-    } else {
-      // Prevent unchecking if it's the only one checked (i.e., Gmail is also unchecked)
-      // This ensures at least one option is always selected.
-      if (!viewInGmailToggle.checked) {
-        viewInAppWindowToggle.checked = true; 
-      }
-    }
-    debouncedSave();
-  });
-
-  viewInGmailToggle.addEventListener('change', () => {
-    if (viewInGmailToggle.checked) {
-      viewInAppWindowToggle.checked = false;
-    } else {
-      // Prevent unchecking if it's the only one checked
-      if (!viewInAppWindowToggle.checked) {
-        viewInGmailToggle.checked = true;
-      }
-    }
-    debouncedSave();
-  });
+  document.getElementById('speakSenderNameToggle').addEventListener('change', debouncedSave); // <-- ADD THIS LINE
+  document.getElementById('speakSubjectToggle').addEventListener('change', debouncedSave);   // <-- ADD THIS LINE
 
   document.getElementById('voiceToggle').addEventListener('change', () => {
     // Update the settings object directly for immediate reflection in updateSettingsUI
@@ -482,12 +490,8 @@ window.addEventListener('beforeunload', () => {
 window.gmail.on('display-email-in-modal', (event, emailData) => {
   if (emailPreviewFrame && emailPreviewModal && emailPreviewTitle) {
     console.log('Received email data for modal:', emailData.subject);
-    const cssToUse = emailData.css; // IFRAME_BASE_CSS was removed
-    if (!cssToUse) {
-      console.warn("No CSS provided from main process for email display. Email might not render correctly.");
-      // Optionally, show a notification to the user, though it might be noisy if it happens often.
-    }
-    emailPreviewFrame.srcdoc = (cssToUse || "") + emailData.html; // Use empty string if cssToUse is undefined
+    const cssToUse = emailData.css || IFRAME_BASE_CSS; // IFRAME_BASE_CSS is already defined in renderer.js
+    emailPreviewFrame.srcdoc = cssToUse + emailData.html;
     emailPreviewTitle.textContent = emailData.subject || 'Email Preview';
     emailPreviewModal.style.display = 'block';
   } else {
