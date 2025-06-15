@@ -473,18 +473,39 @@ async function summarizeText(text) {
     return text;
   }
 
+  console.log("Input text to summarizer.py:", text); // Added log
   return executePythonScript('summarizer.py', [], text)
     .then(result => {
       if (result && result.success && result.summary_text) {
         console.log("Summarization successful via Python script.");
-        return result.summary_text;
+        console.log("Summary text from summarizer.py:", result.summary_text);
+
+        const summary = result.summary_text;
+        const originalLength = text.length;
+        const summaryLength = summary.length;
+
+        // Condition for not effective summary:
+        // 1. Summary is longer than 75% of original, AND very close in length to original (e.g. less than 20 char diff)
+        // OR 2. Summary is actually longer than original (shouldn't happen with BART but good to check)
+        const notEffectiveReduction = (summaryLength > originalLength * 0.75 && (originalLength - summaryLength) < 20);
+        const longerThanOriginal = summaryLength >= originalLength; // Check if summary is same or longer
+
+        if (longerThanOriginal || notEffectiveReduction) {
+          console.log("Summarization deemed not effective or summary is same/longer than original. Returning original text. Original length:", originalLength, "Summary length:", summaryLength);
+          return text; // Return original text
+        } else {
+          console.log("Summarization effective. Original length:", originalLength, "Summary length:", summaryLength);
+          return summary; // Return the good summary
+        }
       } else {
         console.error(`Error or invalid response from summarizer.py: ${result?.error || 'Unknown error'}`);
+        console.error("Full result from summarizer.py (non-success or invalid):", result); // Added log
         return text; // Fallback to original text
       }
     })
     .catch(error => {
       console.error(`Summarization script execution failed: ${error.message}`);
+      console.error("Raw error object from executePythonScript in summarizeText:", error); // Added log
       return text; // Fallback to original text
     });
 }

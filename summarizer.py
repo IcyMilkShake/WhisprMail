@@ -15,11 +15,11 @@ def summarize_text_bart(text_to_summarize):
 
         summary_list = summarizer(
             text_to_summarize,
-            max_length=142,
-            min_length=30,
+            max_length=80,    # Changed
+            min_length=20,    # Changed
             do_sample=False,
             no_repeat_ngram_size=3,
-            length_penalty=2.0,
+            length_penalty=1.0, # Changed
             num_beams=4,
             truncation=True # Ensure text is truncated if too long for the model
         )
