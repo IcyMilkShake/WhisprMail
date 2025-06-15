@@ -3,23 +3,6 @@
 <head>
   <title>Gmail Monitor Pro</title>
   <style>
-    :root {
-      --primary-bg: #2C2F33;
-      --secondary-bg: #23272A;
-      --tertiary-bg: #36393F;
-      --main-text: #FFFFFF;
-      --secondary-text: #B9BBBE;
-      --accent-purple: #7289DA;
-      --lighter-purple: #8A9DF2;
-      --button-bg: #4F545C;
-      --button-hover-bg: #5D6269;
-      --success-color: #43B581;
-      --error-color: #F04747;
-      --warning-color: #FAA61A;
-      /* Add more if needed, e.g., border-color */
-      --border-color: #40444B; 
-    }
-
     * {
       margin: 0;
       padding: 0;
@@ -27,176 +10,171 @@
     }
 
     body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background-color: var(--primary-bg);
-      color: var(--main-text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       min-height: 100vh;
       padding: 20px;
+      color: #333;
       overflow-x: hidden;
     }
 
     .container {
-      max-width: 500px; /* Consider adjusting for wider screens if needed */
+      max-width: 500px;
       margin: 0 auto;
       animation: fadeInUp 0.6s ease-out;
     }
 
-    /* General Panel Styling */
-    .glass-card, /* Existing main card */
-    .settings-panel,
-    #notifiableAuthorsCard, /* Used as a panel */
-    .status-display,
-    .email-count {
-      background-color: var(--secondary-bg);
-      border: 1px solid var(--border-color);
-      border-radius: 8px; /* Standardized border-radius */
-      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2); /* Darker shadow for depth */
-      padding: 20px; /* Standardized padding */
-      margin-bottom: 20px; /* Spacing between panels */
-      overflow: hidden; 
+    .glass-card {
+      background: rgba(255, 255, 255, 0.25);
+      backdrop-filter: blur(20px);
+      border-radius: 24px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      box-shadow: 0 20px 40px rgba(102, 126, 234, 0.3);
+      overflow: hidden; /* Ensure this is hidden */
       transition: all 0.3s ease;
+      min-height: 700px; /* Added minimum height in pixels */
     }
 
-    .glass-card { /* Specific overrides if .glass-card is the main wrapper */
-        min-height: auto; /* Override previous min-height if it's too large */
-        padding: 0; /* Let inner sections handle padding */
-    }
-    
-    .glass-card:hover { /* Subtle hover effect for panels */
+    .glass-card:hover {
       transform: translateY(-2px);
-      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+      box-shadow: 0 25px 50px rgba(102, 126, 234, 0.4);
     }
 
-    .header { /* Specific styling for the top header if it's inside a .glass-card */
+    .header {
       text-align: center;
-      padding: 30px 20px; /* Adjusted padding */
-      background-color: var(--tertiary-bg); /* Slightly different background for header */
-      border-bottom: 1px solid var(--border-color);
+      padding: 40px 30px 30px;
+      background: rgba(255, 255, 255, 0.1);
       position: relative;
     }
 
-    .header::before { /* Keep the accent line, or change colors */
+    .header::before {
       content: '';
       position: absolute;
       top: 0;
       left: 0;
       right: 0;
       height: 4px;
-      background: linear-gradient(90deg, var(--accent-purple), var(--lighter-purple), var(--success-color));
+      background: linear-gradient(90deg, #4285f4, #34a853, #fbbc05, #ea4335);
     }
 
-    h1, h2, h3, h4, h5, h6 {
-      color: var(--main-text); /* Default heading color */
-      margin-bottom: 0.5em; /* Consistent spacing */
+    h1 {
+      color: white;
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.3);
     }
-    h1 { font-size: 24px; color: var(--accent-purple); }
-    h2 { font-size: 20px; }
-    h3 { font-size: 18px; }
 
     .subtitle {
-      color: var(--secondary-text);
+      color: rgba(255, 255, 255, 0.8);
       font-size: 14px;
       font-weight: 400;
     }
 
-    .status-section { /* This wraps status-display and email-count */
-      padding: 20px; /* Padding for the section containing status elements */
+    .status-section {
+      padding: 30px;
     }
 
-    .status-display { /* Added flex properties for centering */
-      display: flex;
-      flex-direction: column;
-      align-items: center;
+    .status-display {
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 16px;
+      padding: 24px;
       text-align: center;
+      margin-bottom: 24px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+      transition: all 0.3s ease;
     }
-    
-    /* Status Display already covered by .glass-card like styling */
+
     .status-icon {
-      font-size: 40px; /* Slightly smaller */
-      margin-bottom: 10px;
+      font-size: 48px;
+      margin-bottom: 12px;
       display: block;
       animation: pulse 2s infinite;
-      color: var(--main-text); /* Ensure icon color matches */
     }
 
     .status-text {
       font-size: 18px;
       font-weight: 600;
       margin-bottom: 8px;
-      color: var(--main-text); /* Default status text */
     }
 
     .status-subtext {
       font-size: 14px;
-      color: var(--secondary-text);
+      color: #666;
     }
 
     .monitoring .status-text {
-      color: var(--success-color);
-    }
-    .monitoring .status-icon {
-      color: var(--success-color);
+      color: #10b981;
     }
 
     .stopped .status-text {
-      color: var(--error-color);
+      color: #ef4444;
     }
-    .stopped .status-icon {
-      color: var(--error-color);
-    }
-    
-    /* Email Count already covered by .glass-card like styling */
+
     .email-count {
-        text-align: center;
+      background: linear-gradient(135deg, #4285f4, #34a853);
+      color: white;
+      padding: 20px;
+      border-radius: 16px;
+      text-align: center;
+      margin-bottom: 24px;
+      box-shadow: 0 8px 32px rgba(66, 133, 244, 0.3);
+      position: relative;
+      overflow: hidden;
     }
-    .email-count::before { /* Shimmer effect, adjust colors if needed */
-      background: linear-gradient(45deg, transparent, rgba(255,255,255,0.05), transparent);
+
+    .email-count::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: linear-gradient(45deg, transparent, rgba(255,255,255,0.1), transparent);
       animation: shimmer 3s infinite;
     }
 
     .count-number {
-      font-size: 28px;
+      font-size: 32px;
       font-weight: 700;
       margin-bottom: 4px;
-      color: var(--main-text);
+      position: relative;
+      z-index: 1;
     }
 
     .count-label {
       font-size: 14px;
-      color: var(--secondary-text);
+      opacity: 0.9;
+      position: relative;
+      z-index: 1;
     }
 
-    .controls { /* Panel for control buttons */
+    .controls {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 12px;
-      margin-bottom: 20px; /* Consistent spacing */
-      padding: 20px;
-      background-color: var(--secondary-bg);
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
+      margin-bottom: 24px;
     }
 
-    button, .control-btn { /* General button styling */
-      background-color: var(--button-bg);
-      color: var(--main-text);
-      border: 1px solid var(--border-color);
-      border-radius: 5px;
-      padding: 10px 15px;
+    .control-btn {
+      background: rgba(255, 255, 255, 0.9);
+      border: none;
+      padding: 16px 20px;
+      border-radius: 12px;
       font-size: 14px;
       font-weight: 600;
       cursor: pointer;
-      transition: background-color 0.2s ease, transform 0.1s ease;
+      transition: all 0.3s ease;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 8px;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.1);
     }
 
-    button:hover, .control-btn:hover {
-      background-color: var(--button-hover-bg);
-      transform: translateY(-1px); /* Subtle lift */
+    .control-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.15);
     }
 
     .control-btn:active {
@@ -207,52 +185,55 @@
       opacity: 0.5;
       cursor: not-allowed;
       transform: none;
-      background-color: var(--tertiary-bg); /* Different disabled bg */
     }
 
-    /* Specific Button Styles */
-    .btn-start { /* Primary action button when stopped */
-      background-color: var(--accent-purple);
-    }
-    .btn-start:hover {
-      background-color: var(--lighter-purple);
-    }
-    /* .btn-start when monitoring could be var(--success-color) if desired */
-    
-    .btn-stop { /* Destructive-like action */
-      background-color: var(--error-color);
-    }
-    .btn-stop:hover {
-      background-color: #d33636; /* Darken error color */
+    .btn-start {
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: white;
     }
 
-    .btn-check, .btn-view-all { /* Neutral/utility buttons */
-      grid-column: 1 / -1; /* Span full width */
-      background-color: var(--tertiary-bg);
+    .btn-stop {
+      background: linear-gradient(135deg, #ef4444, #dc2626);
+      color: white;
     }
-    .btn-check:hover, .btn-view-all:hover {
-      background-color: var(--button-bg); /* Use standard button hover */
+
+    .btn-check {
+      grid-column: 1 / -1;
+      background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+      color: white;
     }
-    
-    /* Settings Panel already covered by .glass-card like styling */
+
+    .btn-view-all {
+      grid-column: 1 / -1; /* Make it span full width like btn-check */
+      background: linear-gradient(135deg, #6c757d, #5a6268); /* A neutral/grey gradient */
+      color: white;
+    }
+
+    .settings-panel {
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+      max-height: 300px; /* Added max height in pixels */
+      overflow-y: auto; /* Added scroll for overflow */
+    }
+
     .settings-title {
       font-size: 18px;
       font-weight: 700;
-      color: var(--main-text);
-      margin-bottom: 15px;
+      color: #333;
+      margin-bottom: 20px;
       display: flex;
       align-items: center;
       gap: 8px;
-      border-bottom: 1px solid var(--border-color);
-      padding-bottom: 10px;
     }
 
     .setting-item {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 12px 0; /* Adjusted padding */
-      border-bottom: 1px solid var(--border-color);
+      padding: 16px 0;
+      border-bottom: 1px solid rgba(0,0,0,0.05);
     }
 
     .setting-item:last-child {
@@ -265,7 +246,7 @@
 
     .setting-label {
       font-weight: 600;
-      color: var(--main-text);
+      color: #333;
       margin-bottom: 4px;
       display: flex;
       align-items: center;
@@ -274,15 +255,15 @@
 
     .setting-description {
       font-size: 12px;
-      color: var(--secondary-text);
+      color: #666;
     }
 
-    /* Modern Toggle Switch - Dark Theme */
+    /* Modern Toggle Switch */
     .toggle {
       position: relative;
       display: inline-block;
-      width: 50px; /* Slightly smaller */
-      height: 26px;
+      width: 54px;
+      height: 28px;
     }
 
     .toggle input {
@@ -298,160 +279,33 @@
       left: 0;
       right: 0;
       bottom: 0;
-      background-color: var(--tertiary-bg); /* Darker background for off state */
-      transition: 0.3s;
-      border-radius: 26px;
-      border: 1px solid var(--border-color);
+      background: #ccc;
+      transition: 0.4s;
+      border-radius: 28px;
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
     }
 
     .slider:before {
       position: absolute;
       content: "";
-      height: 20px; /* Smaller knob */
-      width: 20px;
+      height: 24px;
+      width: 24px;
       left: 2px;
       bottom: 2px;
-      background-color: var(--secondary-text); /* Knob color */
-      transition: 0.3s;
+      background: white;
+      transition: 0.4s;
       border-radius: 50%;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
     }
 
     input:checked + .slider {
-      background-color: var(--accent-purple); /* Accent color for on state */
-      border-color: var(--accent-purple);
+      background: linear-gradient(135deg, #4285f4, #34a853);
     }
+
     input:checked + .slider:before {
-      transform: translateX(24px); /* Adjust knob travel */
-      background-color: var(--main-text); /* Knob color when on */
+      transform: translateX(26px);
+      box-shadow: 0 2px 8px rgba(66, 133, 244, 0.4);
     }
-
-    /* Input fields */
-    input[type="email"], input[type="text"] { /* Assuming generic text inputs too */
-      background-color: var(--primary-bg);
-      color: var(--main-text);
-      border: 1px solid var(--border-color);
-      border-radius: 5px;
-      padding: 10px; /* Increased padding */
-      font-size: 14px;
-      width: 100%; /* Make them take available width */
-    }
-    input[type="email"]:focus, input[type="text"]:focus {
-      border-color: var(--accent-purple);
-      outline: none; /* Remove default outline */
-      box-shadow: 0 0 5px var(--accent-purple_alpha); /* Optional: add a glow, define --accent-purple_alpha */
-    }
-
-    /* Notifiable Authors List */
-    #notifiableAuthorsCard .header { /* Specific header for this card */
-        background-color: var(--tertiary-bg); /* Match other panel headers */
-    }
-    .authors-section { /* Inner content padding */
-        padding: 20px;
-    }
-    #notifiableAuthorEmailInput { /* Already styled by general input styles */
-        margin-bottom: 10px; /* Add some space below input */
-    }
-    #addNotifiableAuthorBtn { /* Style as a primary action button */
-        background-color: var(--accent-purple);
-        width: auto; /* Don't force full width if not needed */
-        padding: 10px 15px;
-    }
-    #addNotifiableAuthorBtn:hover {
-        background-color: var(--lighter-purple);
-    }
-    .notifiable-authors-list-container h3 {
-        color: var(--main-text);
-        border-bottom: 1px solid var(--border-color);
-        padding-bottom: 8px;
-        margin-bottom: 12px;
-    }
-    #notifiableAuthorsList li {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 10px 5px;
-        border-bottom: 1px solid var(--border-color);
-        font-size: 14px;
-        color: var(--secondary-text);
-    }
-    #notifiableAuthorsList li:last-child {
-        border-bottom: none;
-    }
-    #notifiableAuthorsList .author-email {
-        color: var(--main-text);
-    }
-    #notifiableAuthorsList .remove-author-btn {
-        background-color: var(--error-color);
-        color: var(--main-text);
-        padding: 6px 10px; /* Adjusted padding */
-        font-size: 12px;
-    }
-    #notifiableAuthorsList .remove-author-btn:hover {
-        background-color: #d33636; /* Darken error color */
-    }
-    #noNotifiableAuthorsMsg {
-        color: var(--secondary-text);
-        font-style: italic;
-        margin-top: 10px;
-        text-align: center;
-    }
-    
-    /* Links */
-    a {
-      color: var(--accent-purple);
-      text-decoration: none;
-    }
-    a:hover {
-      color: var(--lighter-purple);
-      text-decoration: underline;
-    }
-
-    /* Email Preview Modal */
-    #emailPreviewModal { /* Backdrop */
-      background-color: rgba(0, 0, 0, 0.7); /* Darker backdrop */
-    }
-    /* The modal content div itself (child of #emailPreviewModal) */
-    #emailPreviewModal > div { 
-      background-color: var(--secondary-bg);
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-      color: var(--main-text); /* Ensure text inside modal is visible */
-    }
-    #emailPreviewTitle {
-      color: var(--main-text);
-    }
-    #closeEmailPreviewModal {
-      color: var(--secondary-text);
-      font-size: 24px; /* Ensure it's large enough */
-      transition: color 0.2s ease;
-    }
-    #closeEmailPreviewModal:hover {
-      color: var(--main-text);
-    }
-    #emailPreviewFrame {
-      border: 1px solid var(--border-color);
-      border-radius: 5px; /* Consistent border radius */
-    }
-
-    /* Scrollbars */
-    ::-webkit-scrollbar {
-      width: 10px; /* Slightly wider */
-      height: 10px;
-    }
-    ::-webkit-scrollbar-track {
-      background: var(--primary-bg);
-      border-radius: 5px;
-    }
-    ::-webkit-scrollbar-thumb {
-      background: var(--button-bg);
-      border-radius: 5px;
-      border: 2px solid var(--primary-bg); /* Creates a nice padding effect */
-    }
-    ::-webkit-scrollbar-thumb:hover {
-      background: var(--button-hover-bg);
-    }
-
     /* Animations */
     @keyframes fadeInUp {
       from {
@@ -566,7 +420,7 @@
               <div class="setting-label">
                 <span>🤖</span> AI Summary
               </div>
-              <div class="setting-description">Summarize long emails using AI (Adds ~2-5s per email)</div>
+              <div class="setting-description">Summarize long emails using AI</div>
             </div>
             <label class="toggle">
               <input type="checkbox" id="summaryToggle">
@@ -620,7 +474,7 @@
               <div class="setting-label">
                 <span>⚠️</span> Show Urgency
               </div>
-              <div class="setting-description">Display urgency level on notifications (Adds ~2-5s per email)</div>
+              <div class="setting-description">Display urgency level on notifications</div>
             </div>
             <label class="toggle">
               <input type="checkbox" id="urgencyToggle" checked>
@@ -633,43 +487,10 @@
               <div class="setting-label">
                 <span>⏱️</span> Show Read Time 
               </div>
-              <div class="setting-description">Display estimated read time on notifications (Adds ~2-5s per email)</div>
+              <div class="setting-description">Display estimated read time on notifications</div>
             </div>
             <label class="toggle">
               <input type="checkbox" id="readTimeToggle" checked>
-              <span class="slider"></span>
-            </label>
-          </div>
-
-          <!-- Sub-heading for Email View Preference -->
-          <div style="padding: 10px 0 5px 0; color: var(--main-text); font-size: 16px; font-weight: bold; border-bottom: 1px solid var(--border-color); margin-bottom: 5px;">
-            View Emails Using:
-          </div>
-
-          <!-- App Window Toggle -->
-          <div class="setting-item">
-            <div class="setting-info">
-              <div class="setting-label" style="font-size: 13px;">
-                <span>🖥️</span> App Window
-              </div>
-              <div class="setting-description" style="font-size: 11px;">View emails in a new window within this application.</div>
-            </div>
-            <label class="toggle">
-              <input type="checkbox" id="viewInAppWindowToggle">
-              <span class="slider"></span>
-            </label>
-          </div>
-
-          <!-- Gmail Toggle -->
-          <div class="setting-item">
-            <div class="setting-info">
-              <div class="setting-label" style="font-size: 13px;">
-                <span>🌐</span> Gmail
-              </div>
-              <div class="setting-description" style="font-size: 11px;">View emails directly in the Gmail web application.</div>
-            </div>
-            <label class="toggle">
-              <input type="checkbox" id="viewInGmailToggle">
               <span class="slider"></span>
             </label>
           </div>
