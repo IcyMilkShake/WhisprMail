@@ -8,6 +8,65 @@ const say = require('say');
 const { spawn } = require('child_process');
 const puppeteer = require('puppeteer');
 require('dotenv').config();
+const { MongoClient } = require('mongodb');
+const os = require('os'); // Or 'process' for environment variables, depending on how it's used later
+
+let huggingFaceTokenFromDB = null; // Variable to store the fetched token
+
+// --- MongoDB Configuration ---
+// IMPORTANT: It's STRONGLY recommended to use an environment variable for the MongoDB URI in production.
+// Example: export MONGODB_URI="mongodb+srv://user:pass@cluster.mongodb.net/yourDb?retryWrites=true&w=majority"
+const MONGO_URI = process.env.MONGODB_URI || "mongodb+srv://YOUR_USERNAME:YOUR_PASSWORD@YOUR_CLUSTER.mongodb.net/cluster0?retryWrites=true&w=majority";
+const DATABASE_NAME = "cluster0";
+const COLLECTION_NAME = "EnvironmentVariables";
+const TOKEN_NAME_TO_FETCH = "HUGGING_FACE_TOKEN"; // The 'name' of the token document/record
+
+// --- MongoDB Helper Functions ---
+async function getMongoClient() {
+    const client = new MongoClient(MONGO_URI);
+    try {
+        await client.connect();
+        console.log("Successfully connected to MongoDB from main.js.");
+        return client;
+    } catch (err) {
+        console.error("MongoDB connection failed in main.js:", err);
+        // Consider how critical this is. Should the app exit or continue degraded?
+        // For now, we'll let it throw, or you can return null.
+        throw err; // or return null;
+    }
+}
+
+async function getSecretFromMongoDB(tokenName) {
+    let client;
+    try {
+        client = await getMongoClient();
+        if (!client) return null;
+
+        const db = client.db(DATABASE_NAME);
+        const collection = db.collection(COLLECTION_NAME);
+
+        // Assuming documents in 'EnvironmentVariables' have a 'name' field identifying the token
+        // and a 'value' field holding the token string.
+        const secretDocument = await collection.findOne({ name: tokenName });
+
+        if (secretDocument && secretDocument.value) {
+            console.log(`Successfully fetched secret: ${tokenName} from MongoDB.`);
+            return secretDocument.value;
+        } else {
+            console.warn(`Secret not found in MongoDB: ${tokenName} in collection ${COLLECTION_NAME}.`);
+            return null;
+        }
+    } catch (err) {
+        console.error(`Error fetching secret '${tokenName}' from MongoDB:`, err);
+        return null;
+    } finally {
+        if (client) {
+            await client.close();
+            console.log("MongoDB connection closed in main.js.");
+        }
+    }
+}
+// --- End of MongoDB Functions ---
 
 const NOTIFIABLE_AUTHORS_PATH = path.join(app.getPath('userData'), 'notifiable_authors.json');
 const SETTINGS_PATH = path.join(app.getPath('userData'), 'app_settings.json');
@@ -95,7 +154,19 @@ let settings = {
 function executePythonScript(scriptName, scriptArgs = [], inputText = null, timeout = 100000) {
   return new Promise((resolve, reject) => {
     const fullScriptPath = path.join(__dirname, scriptName);
-    const pythonProcess = spawn(PYTHON_EXECUTABLE_PATH, [fullScriptPath, ...scriptArgs]);
+
+    // --- Prepare environment for Python script ---
+    const pythonEnv = { ...process.env }; // Clone current environment
+    if (huggingFaceTokenFromDB) {
+      pythonEnv.HUGGING_FACE_HUB_TOKEN = huggingFaceTokenFromDB;
+      console.log(`Main.js: Setting HUGGING_FACE_HUB_TOKEN for ${scriptName}.`);
+    } else {
+      console.log(`Main.js: HUGGING_FACE_HUB_TOKEN not available for ${scriptName}.`);
+    }
+    // --- End of environment preparation ---
+
+    // Pass the modified environment to spawn
+    const pythonProcess = spawn(PYTHON_EXECUTABLE_PATH, [fullScriptPath, ...scriptArgs], { env: pythonEnv });
 
     let stdoutData = '';
     let stderrData = '';
@@ -174,6 +245,22 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  // --- Fetch Hugging Face Token ---
+  try {
+    console.log("Main.js: Attempting to fetch HUGGING_FACE_TOKEN from MongoDB on app ready.");
+    huggingFaceTokenFromDB = await getSecretFromMongoDB(TOKEN_NAME_TO_FETCH);
+    if (huggingFaceTokenFromDB) {
+      console.log("Main.js: HUGGING_FACE_TOKEN fetched successfully from MongoDB.");
+      // Optionally, log a part of the token for verification, but be careful with sensitive data
+      // console.log(`Main.js: Token (first 5 chars): ${huggingFaceTokenFromDB.substring(0,5)}...`);
+    } else {
+      console.warn("Main.js: HUGGING_FACE_TOKEN could not be fetched from MongoDB. Python scripts might not have authentication.");
+    }
+  } catch (error) {
+    console.error("Main.js: Error fetching HUGGING_FACE_TOKEN from MongoDB on app ready:", error);
+  }
+  // --- End of Token Fetching ---
+
   loadAppSettings(); // Load settings first
   await saveAppSettings(); // Ensure file exists with current/default settings
   
