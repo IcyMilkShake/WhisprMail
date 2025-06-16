@@ -5,9 +5,9 @@ from pymongo.errors import ConnectionFailure, OperationFailure
 # --- MongoDB Configuration ---
 # IMPORTANT: Replace this with your actual MongoDB connection string.
 # Example format: "mongodb+srv://<username>:<password>@<cluster-url>/<database_name>?retryWrites=true&w=majority"
-MONGO_URI_PLACEHOLDER = "mongodb+srv://YOUR_USERNAME:YOUR_PASSWORD@YOUR_CLUSTER.mongodb.net/YOUR_DATABASE?retryWrites=true&w=majority"
-DATABASE_NAME = "mydatabase"  # Or your specific database name
-SECRETS_COLLECTION = "secrets"  # Collection to store secrets like API tokens
+MONGO_URI_PLACEHOLDER = "mongodb+srv://IcyMilkShake:t5975878@cluster0.mongodb.net/EnvironmentVariables?retryWrites=true&w=majority"
+DATABASE_NAME = "EnvironmentVariables"  # Or your specific database name
+SECRETS_COLLECTION = "Variables"  # Collection to store secrets like API tokens
 
 # It's recommended to use an environment variable for the URI in production
 MONGO_URI = os.environ.get("MONGODB_URI", MONGO_URI_PLACEHOLDER)
