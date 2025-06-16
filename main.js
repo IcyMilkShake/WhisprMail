@@ -17,10 +17,10 @@ let huggingFaceTokenFromDB = null; // Variable to store the fetched token
 // IMPORTANT: It's STRONGLY recommended to use an environment variable for the MongoDB URI in production.
 // Example: export MONGODB_URI="mongodb+srv://user:pass@cluster.mongodb.net/yourDb?retryWrites=true&w=majority"
 const MONGO_URI = process.env.MONGODB_URI || "mongodb+srv://milkshake:t5975878@cluster0.k5dmweu.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
-const DATABASE_NAME = "cluster0";
-const COLLECTION_NAME = "EnvironmentVariables";
+const DATABASE_NAME = "EnvironmentVariable";
+const COLLECTION_NAME = "Variables";
 const TOKEN_NAME_TO_FETCH = "HUGGING_FACE_TOKEN"; // The 'name' of the token document/record
-
+getMongoClient()
 // --- MongoDB Helper Functions ---
 async function getMongoClient() {
     const client = new MongoClient(MONGO_URI);
