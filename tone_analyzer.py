@@ -7,6 +7,23 @@ Maintains exact same interface as original but uses Hugging Face AI
 import sys
 import json
 import os
+# Import for MongoDB integration
+from mongodb_utils import get_secret
+
+# --- Added for MongoDB Token Retrieval ---
+def load_and_set_hugging_face_token():
+    """Fetches Hugging Face token from MongoDB and sets it as an environment variable."""
+    print("Attempting to fetch HUGGING_FACE_TOKEN from MongoDB...", file=sys.stderr)
+    token_value = get_secret("HUGGING_FACE_TOKEN")
+    if token_value:
+        os.environ['HUGGING_FACE_HUB_TOKEN'] = token_value
+        print("HUGGING_FACE_HUB_TOKEN environment variable set from MongoDB.", file=sys.stderr)
+        # For security, you might not want to print the actual token in production logs
+        # print(f"Token value (first 5 chars): {token_value[:5]}...", file=sys.stderr)
+    else:
+        print("Failed to fetch HUGGING_FACE_TOKEN from MongoDB. The application might not work as expected if the token is required.", file=sys.stderr)
+        print("Ensure MongoDB is configured correctly and the token 'HUGGING_FACE_TOKEN' exists in the 'secrets' collection.", file=sys.stderr)
+# --- End of Added Code ---
 
 def load_ai_classifier():
     """Load the AI model with proper error handling"""
@@ -14,6 +31,13 @@ def load_ai_classifier():
         from transformers import pipeline
         print("Loading AI model... (this may take a moment on first run)", file=sys.stderr)
         
+        # Ensure HUGGING_FACE_HUB_TOKEN is available if needed by transformers
+        # The token should be set by load_and_set_hugging_face_token() before this function is called.
+        if 'HUGGING_FACE_HUB_TOKEN' in os.environ:
+            print("HUGGING_FACE_HUB_TOKEN is set.", file=sys.stderr)
+        else:
+            print("HUGGING_FACE_HUB_TOKEN is NOT set. Model loading might fail or use public models only.", file=sys.stderr)
+
         classifier = pipeline(
             "zero-shot-classification",
             model="facebook/bart-large-mnli",
@@ -167,6 +191,10 @@ def fallback_analysis(text):
 def main():
     """Main function - maintains original interface"""
     try:
+        # --- Call token loading function at the beginning of main ---
+        load_and_set_hugging_face_token()
+        # --- End of Call ---
+
         # Get input text
         input_text = ""
         if not sys.stdin.isatty():
