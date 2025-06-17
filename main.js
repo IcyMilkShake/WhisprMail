@@ -20,6 +20,9 @@ const MONGO_URI = process.env.MONGODB_URI || "mongodb+srv://milkshake:t5975878@c
 const DATABASE_NAME = "EnvironmentVariable";
 const COLLECTION_NAME = "Variables";
 const TOKEN_NAME_TO_FETCH = "HUGGING_FACE_TOKEN"; // The 'name' of the token document/record
+const GOOGLE_CLIENT_ID_NAME = "GOOGLE_CLIENT_ID";
+const GOOGLE_CLIENT_SECRET_NAME = "GOOGLE_CLIENT_SECRET";
+const GOOGLE_OAUTH_TOKENS_NAME = "GOOGLE_OAUTH_TOKENS";
 getMongoClient()
 // --- MongoDB Helper Functions ---
 async function getMongoClient() {
@@ -65,6 +68,44 @@ async function getSecretFromMongoDB(tokenName) {
             console.log("MongoDB connection closed in main.js.");
         }
     }
+}
+
+async function saveSecretToMongoDB(tokenName, tokenValue) {
+  let client;
+  try {
+    client = await getMongoClient();
+    if (!client) {
+      console.error("saveSecretToMongoDB: Failed to get MongoDB client.");
+      return false; // Or throw error
+    }
+
+    const db = client.db(DATABASE_NAME);
+    const collection = db.collection(COLLECTION_NAME);
+
+    const result = await collection.updateOne(
+      { name: tokenName },
+      { $set: { value: tokenValue } },
+      { upsert: true }
+    );
+
+    if (result.modifiedCount > 0 || result.upsertedCount > 0) {
+      console.log(`Successfully saved/updated secret: ${tokenName} in MongoDB.`);
+      return true;
+    } else {
+      // This case might indicate that the value was the same, so nothing was modified.
+      // Or it could be an unexpected scenario. For simplicity, we can assume same-value updates are okay.
+      console.log(`Secret ${tokenName} value unchanged or write operation had no effect.`);
+      return true; // Still consider it a success if no error, but value was same.
+    }
+  } catch (err) {
+    console.error(`Error saving secret '${tokenName}' to MongoDB:`, err);
+    return false; // Or throw error
+  } finally {
+    if (client) {
+      await client.close();
+      console.log("MongoDB connection closed after saving secret in saveSecretToMongoDB.");
+    }
+  }
 }
 // --- End of MongoDB Functions ---
 
@@ -362,38 +403,53 @@ function createAuthServer() {
 
 async function initializeGmail() {
   // SCOPES is now a global constant
-  const TOKEN_PATH = path.join(__dirname, 'token.json');
-  const CREDENTIALS = JSON.parse(fs.readFileSync('credentials.json'));
+  // const TOKEN_PATH = path.join(__dirname, 'token.json'); // Removed
 
-  const { client_secret, client_id } = CREDENTIALS.installed;
+  const client_id = await getSecretFromMongoDB(GOOGLE_CLIENT_ID_NAME);
+  const client_secret = await getSecretFromMongoDB(GOOGLE_CLIENT_SECRET_NAME);
+
+  if (!client_id || !client_secret) {
+    console.error('CRITICAL: Google Client ID or Secret not found in MongoDB. Cannot initialize Gmail.');
+    throw new Error('CRITICAL: Google Client ID or Secret not found in MongoDB.');
+  }
+
   oAuth2Client = new google.auth.OAuth2(client_id, client_secret, 'http://localhost:3000');
-  console.log("initializing gmail")
-  if (fs.existsSync(TOKEN_PATH)) {
-    const token = JSON.parse(fs.readFileSync(TOKEN_PATH));
+  console.log("Initializing Gmail: OAuth2 client created.");
+
+  let token = await getSecretFromMongoDB(GOOGLE_OAUTH_TOKENS_NAME);
+
+  if (token) {
     oAuth2Client.setCredentials(token);
     try {
-      await oAuth2Client.getAccessToken();
+      await oAuth2Client.getAccessToken(); // Check if token is valid/expired
+      console.log("Successfully used token from MongoDB.");
     } catch (error) {
-      console.log('Token expired, re-authenticating...');
-      fs.unlinkSync(TOKEN_PATH);
-      return await initializeGmail();
+      console.log('Token from MongoDB expired or invalid, re-authenticating...');
+      token = null; // Signal to get a new token
+      // No need to delete from DB here, will be overwritten by saveSecretToMongoDB
     }
-  } else {
+  }
+  // If token is null (either not found, or was found but expired)
+  if (!token) {
+    console.log('No valid token found in MongoDB, starting new auth flow...');
     const authUrl = oAuth2Client.generateAuthUrl({
       access_type: 'offline',
-      scope: SCOPES, // Updated scopes
+      scope: SCOPES, // SCOPES is a global constant
       prompt: 'consent'
     });
 
     const open = (await import('open')).default; // Dynamic import
     await open(authUrl);
-    const code = await createAuthServer();
-    const { tokens } = await oAuth2Client.getToken(code);
-    oAuth2Client.setCredentials(tokens);
-    fs.writeFileSync(TOKEN_PATH, JSON.stringify(tokens));
+    const code = await createAuthServer(); // Assumes createAuthServer is defined elsewhere
+    const { tokens: newTokens } = await oAuth2Client.getToken(code); // Renamed to newTokens for clarity
+    oAuth2Client.setCredentials(newTokens);
+    await saveSecretToMongoDB(GOOGLE_OAUTH_TOKENS_NAME, newTokens); // Save new token
+    console.log('New token obtained and saved to MongoDB.');
+    token = newTokens; // Update the token variable for current session
   }
 
   gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
+  console.log("Gmail API client initialized successfully.");
 }
 
 // --- EMAIL PROCESSING & ANALYSIS ---
