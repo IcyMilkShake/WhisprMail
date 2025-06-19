@@ -8,103 +8,18 @@ const say = require('say');
 const { spawn } = require('child_process');
 const puppeteer = require('puppeteer');
 require('dotenv').config();
-const { MongoClient } = require('mongodb');
 const os = require('os'); // Or 'process' for environment variables, depending on how it's used later
+const keytar = require('keytar');
+const { randomBytes, createHash } = require('crypto');
 
-let huggingFaceTokenFromDB = null; // Variable to store the fetched token
+// --- Keytar and OAuth Constants ---
+const KEYTAR_SERVICE = 'electron-gmail-app';
+const KEYTAR_ACCOUNT_OAUTH = 'google_oauth_tokens';
+// IMPORTANT: Replace with your actual Google Client ID from Google Cloud Console.
+const GOOGLE_CLIENT_ID = 'YOUR_CLIENT_ID_HERE';
+console.log("IMPORTANT: Remember to replace 'YOUR_CLIENT_ID_HERE' with your actual Google Client ID in main.js and configure the REDIRECT_URI in your Google Cloud Console.");
+const REDIRECT_URI = 'com.my-electron-app.oauth:/oauth2redirect';
 
-// --- MongoDB Configuration ---
-// IMPORTANT: It's STRONGLY recommended to use an environment variable for the MongoDB URI in production.
-// Example: export MONGODB_URI="mongodb+srv://user:pass@cluster.mongodb.net/yourDb?retryWrites=true&w=majority"
-const MONGO_URI = process.env.MONGODB_URI || "mongodb+srv://milkshake:t5975878@cluster0.k5dmweu.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
-const DATABASE_NAME = "EnvironmentVariables";
-const COLLECTION_NAME = "Variables";
-const TOKEN_NAME_TO_FETCH = "HUGGING_FACE_TOKEN"; // The 'name' of the token document/record
-const GOOGLE_CLIENT_ID_NAME = "GOOGLE_CLIENT_ID";
-const GOOGLE_CLIENT_SECRET_NAME = "GOOGLE_CLIENT_SECRET";
-const GOOGLE_OAUTH_TOKENS_NAME = "GOOGLE_OAUTH_TOKENS";
-getMongoClient()
-// --- MongoDB Helper Functions ---
-async function getMongoClient() {
-    const client = new MongoClient(MONGO_URI);
-    try {
-        await client.connect();
-        console.log("Successfully connected to MongoDB from main.js.");
-        return client;
-    } catch (err) {
-        console.error("MongoDB connection failed in main.js:", err);
-        throw err;
-    }
-}
-async function getSecretFromMongoDB(tokenName) {
-    let client;
-    try {
-        client = await getMongoClient();
-        if (!client) return null;
-
-        const db = client.db(DATABASE_NAME);
-        const collection = db.collection(COLLECTION_NAME);
-
-        // Assuming documents in 'EnvironmentVariables' have a 'name' field identifying the token
-        // and a 'value' field holding the token string.
-        const secretDocument = await collection.findOne({ name: tokenName });
-
-        if (secretDocument && secretDocument.value) {
-            console.log(`Successfully fetched secret: ${tokenName} from MongoDB.`);
-            return secretDocument.value;
-        } else {
-            console.warn(`Secret not found in MongoDB: ${tokenName} in collection ${COLLECTION_NAME}.`);
-            return null;
-        }
-    } catch (err) {
-        console.error(`Error fetching secret '${tokenName}' from MongoDB:`, err);
-        return null;
-    } finally {
-        if (client) {
-            await client.close();
-            console.log("MongoDB connection closed in main.js.");
-        }
-    }
-}
-
-async function saveSecretToMongoDB(tokenName, tokenValue) {
-  let client;
-  try {
-    client = await getMongoClient();
-    if (!client) {
-      console.error("saveSecretToMongoDB: Failed to get MongoDB client.");
-      return false; // Or throw error
-    }
-
-    const db = client.db(DATABASE_NAME);
-    const collection = db.collection(COLLECTION_NAME);
-
-    const result = await collection.updateOne(
-      { name: tokenName },
-      { $set: { value: tokenValue } },
-      { upsert: true }
-    );
-
-    if (result.modifiedCount > 0 || result.upsertedCount > 0) {
-      console.log(`Successfully saved/updated secret: ${tokenName} in MongoDB.`);
-      return true;
-    } else {
-      // This case might indicate that the value was the same, so nothing was modified.
-      // Or it could be an unexpected scenario. For simplicity, we can assume same-value updates are okay.
-      console.log(`Secret ${tokenName} value unchanged or write operation had no effect.`);
-      return true; // Still consider it a success if no error, but value was same.
-    }
-  } catch (err) {
-    console.error(`Error saving secret '${tokenName}' to MongoDB:`, err);
-    return false; // Or throw error
-  } finally {
-    if (client) {
-      await client.close();
-      console.log("MongoDB connection closed after saving secret in saveSecretToMongoDB.");
-    }
-  }
-}
-// --- End of MongoDB Functions ---
 
 const NOTIFIABLE_AUTHORS_PATH = path.join(app.getPath('userData'), 'notifiable_authors.json');
 const SETTINGS_PATH = path.join(app.getPath('userData'), 'app_settings.json');
@@ -121,6 +36,8 @@ const SCOPES = [
 let mainWindow;
 let gmail;
 let oAuth2Client;
+let resolveAuthPromise = null;
+let rejectAuthPromise = null;
 let isMonitoring = false;
 let knownEmailIds = new Set();
 let monitoringStartTime = null;
@@ -195,12 +112,6 @@ function executePythonScript(scriptName, scriptArgs = [], inputText = null, time
 
     // --- Prepare environment for Python script ---
     const pythonEnv = { ...process.env }; // Clone current environment
-    if (huggingFaceTokenFromDB) {
-      pythonEnv.HUGGING_FACE_HUB_TOKEN = huggingFaceTokenFromDB;
-      console.log(`Main.js: Setting HUGGING_FACE_HUB_TOKEN for ${scriptName}.`);
-    } else {
-      console.log(`Main.js: HUGGING_FACE_HUB_TOKEN not available for ${scriptName}.`);
-    }
     // --- End of environment preparation ---
 
     // Pass the modified environment to spawn
@@ -284,23 +195,32 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   // --- Fetch Hugging Face Token ---
-  try {
-    console.log("Main.js: Attempting to fetch HUGGING_FACE_TOKEN from MongoDB on app ready.");
-    huggingFaceTokenFromDB = await getSecretFromMongoDB(TOKEN_NAME_TO_FETCH);
-    if (huggingFaceTokenFromDB) {
-      console.log("Main.js: HUGGING_FACE_TOKEN fetched successfully from MongoDB.");
-      // Optionally, log a part of the token for verification, but be careful with sensitive data
-      // console.log(`Main.js: Token (first 5 chars): ${huggingFaceTokenFromDB.substring(0,5)}...`);
-    } else {
-      console.warn("Main.js: HUGGING_FACE_TOKEN could not be fetched from MongoDB. Python scripts might not have authentication.");
-    }
-  } catch (error) {
-    console.error("Main.js: Error fetching HUGGING_FACE_TOKEN from MongoDB on app ready:", error);
-  }
+  // try {
+  //   console.log("Main.js: Attempting to fetch HUGGING_FACE_TOKEN from MongoDB on app ready.");
+  //   huggingFaceTokenFromDB = await getSecretFromMongoDB(TOKEN_NAME_TO_FETCH);
+  //   if (huggingFaceTokenFromDB) {
+  //     console.log("Main.js: HUGGING_FACE_TOKEN fetched successfully from MongoDB.");
+  //     // Optionally, log a part of the token for verification, but be careful with sensitive data
+  //     // console.log(`Main.js: Token (first 5 chars): ${huggingFaceTokenFromDB.substring(0,5)}...`);
+  //   } else {
+  //     console.warn("Main.js: HUGGING_FACE_TOKEN could not be fetched from MongoDB. Python scripts might not have authentication.");
+  //   }
+  // } catch (error) {
+  //   console.error("Main.js: Error fetching HUGGING_FACE_TOKEN from MongoDB on app ready:", error);
+  // }
   // --- End of Token Fetching ---
 
   loadAppSettings(); // Load settings first
   await saveAppSettings(); // Ensure file exists with current/default settings
+
+  // Register custom protocol
+  if (process.defaultApp) {
+    if (process.argv.length >= 2) {
+      app.setAsDefaultProtocolClient(REDIRECT_URI.split(':')[0], process.execPath, [path.resolve(process.argv[1])]);
+    }
+  } else {
+    app.setAsDefaultProtocolClient(REDIRECT_URI.split(':')[0]);
+  }
   
   createWindow();
   loadNotifiableAuthors(); // This can come after loading app settings
@@ -311,7 +231,61 @@ app.whenReady().then(async () => {
   } catch (error) {
     console.error('Failed to initialize:', error);
   }
+
+  // For macOS
+  app.on('open-url', (event, url) => {
+    event.preventDefault(); // Prevent default browser opening
+    if (url.startsWith(REDIRECT_URI)) {
+      handleOAuthRedirect(url);
+    }
+  });
+
+  // For Windows/Linux
+  const gotTheLock = app.requestSingleInstanceLock();
+  if (!gotTheLock) {
+    app.quit();
+  } else {
+    app.on('second-instance', (event, commandLine, workingDirectory) => {
+      // Someone tried to run a second instance, we should focus our window.
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.focus();
+      }
+      // Check if the command line contains our custom protocol URL
+      const url = commandLine.pop(); // Last arg is usually the URL
+      if (url.startsWith(REDIRECT_URI)) {
+        handleOAuthRedirect(url);
+      }
+    });
+  }
 });
+
+function handleOAuthRedirect(url) {
+  try {
+    const parsedUrl = new URL(url);
+    const code = parsedUrl.searchParams.get('code');
+    const error = parsedUrl.searchParams.get('error');
+
+    if (error) {
+      if (rejectAuthPromise) rejectAuthPromise(new Error(`OAuth Error: ${error}`));
+      else console.error('OAuth Error:', error);
+    } else if (code) {
+      if (resolveAuthPromise) resolveAuthPromise(code);
+      else console.log('OAuth Code received but no promise to resolve:', code);
+    } else {
+      if (rejectAuthPromise) rejectAuthPromise(new Error('OAuth Error: No code or error in redirect URL.'));
+      else console.error('OAuth Error: No code or error in redirect URL.');
+    }
+  } catch (err) {
+     if (rejectAuthPromise) rejectAuthPromise(err);
+     else console.error('Error parsing redirect URL:', err);
+  }
+  // Focus main window if available
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+}
 
 ipcMain.on('show-full-email-in-main-window', async (event, messageId) => {
   console.log(`IPC: Request to open email ID ${messageId} externally.`); // Log message updated for clarity
@@ -368,80 +342,81 @@ app.on('activate', () => {
 });
 
 // --- GMAIL AUTHENTICATION & API SETUP ---
-// Create OAuth server
-function createAuthServer() {
-  return new Promise((resolve, reject) => {
-    const server = http.createServer((req, res) => {
-      const parsedUrl = new URL(req.url, 'http://localhost:3000');
-      if (parsedUrl.pathname === '/') {
-        const code = parsedUrl.searchParams.get('code');
-        const error = parsedUrl.searchParams.get('error');
-
-        if (error) {
-          res.writeHead(400, { 'Content-Type': 'text/html' });
-          res.end('<h1>Error</h1><p>Close this window.</p>');
-          server.close();
-          reject(new Error(error));
-          return;
-        }
-
-        if (code) {
-          res.writeHead(200, { 'Content-Type': 'text/html' });
-          res.end('<h1>Success!</h1><p>Close this window.</p>');
-          server.close();
-          resolve(code);
-          return;
-        }
-      }
-    });
-    server.listen(3000, 'localhost');
-  });
-}
-
 async function initializeGmail() {
   // SCOPES is now a global constant
-  // const TOKEN_PATH = path.join(__dirname, 'token.json'); // Removed
+  oAuth2Client = new google.auth.OAuth2(GOOGLE_CLIENT_ID, undefined, REDIRECT_URI);
+  console.log("Initializing Gmail: OAuth2 client created for PKCE.");
 
-  const client_id = await getSecretFromMongoDB(GOOGLE_CLIENT_ID_NAME);
-  const client_secret = await getSecretFromMongoDB(GOOGLE_CLIENT_SECRET_NAME);
+  // Add event listener for token updates
+  oAuth2Client.on('tokens', (tokens) => {
+    if (tokens.refresh_token) {
+      // If a new refresh token is issued, save it.
+      console.log('New refresh token received.');
+    }
+    console.log('Access token refreshed.');
+    // Persist the new tokens (including access_token, new expiry_date, potentially new refresh_token)
+    const currentTokens = oAuth2Client.credentials;
+    keytar.setPassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT_OAUTH, JSON.stringify(currentTokens))
+      .then(() => console.log('Updated tokens saved to keychain.'))
+      .catch(err => console.error('Error saving updated tokens to keychain:', err));
+  });
 
-  if (!client_id || !client_secret) {
-    console.error('CRITICAL: Google Client ID or Secret not found in MongoDB. Cannot initialize Gmail.');
-    throw new Error('CRITICAL: Google Client ID or Secret not found in MongoDB.');
-  }
-
-  oAuth2Client = new google.auth.OAuth2(client_id, client_secret, 'http://localhost:3000');
-  console.log("Initializing Gmail: OAuth2 client created.");
-
-  let token = await getSecretFromMongoDB(GOOGLE_OAUTH_TOKENS_NAME);
+  let tokenString = await keytar.getPassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT_OAUTH);
+  let token = tokenString ? JSON.parse(tokenString) : null;
 
   if (token) {
     oAuth2Client.setCredentials(token);
     try {
       await oAuth2Client.getAccessToken(); // Check if token is valid/expired
-      console.log("Successfully used token from MongoDB.");
+      console.log("Successfully used token from keychain.");
     } catch (error) {
-      console.log('Token from MongoDB expired or invalid, re-authenticating...');
+      console.log('Token from keychain expired or invalid, re-authenticating...');
       token = null; // Signal to get a new token
-      // No need to delete from DB here, will be overwritten by saveSecretToMongoDB
     }
   }
+
   // If token is null (either not found, or was found but expired)
   if (!token) {
-    console.log('No valid token found in MongoDB, starting new auth flow...');
+    console.log('No valid token found in keychain, starting new auth flow...');
+
+    const code_verifier = randomBytes(32).toString('hex');
+    const code_challenge = createHash('sha256').update(code_verifier).digest('base64url');
+
     const authUrl = oAuth2Client.generateAuthUrl({
       access_type: 'offline',
-      scope: SCOPES, // SCOPES is a global constant
-      prompt: 'consent'
+      scope: SCOPES,
+      prompt: 'consent',
+      code_challenge: code_challenge,
+      code_challenge_method: 'S256',
+      redirect_uri: REDIRECT_URI
     });
 
-    const open = (await import('open')).default; // Dynamic import
+    const open = (await import('open')).default;
     await open(authUrl);
-    const code = await createAuthServer(); // Assumes createAuthServer is defined elsewhere
-    const { tokens: newTokens } = await oAuth2Client.getToken(code); // Renamed to newTokens for clarity
+
+    // Wait for the redirect to be handled
+    const code = await new Promise((resolve, reject) => {
+        resolveAuthPromise = resolve;
+        rejectAuthPromise = (err) => {
+            console.error("OAuth Error during token exchange promise. This might be due to an incorrect GOOGLE_CLIENT_ID or REDIRECT_URI mismatch in your Google Cloud Console. Please verify your setup.");
+            console.error("Original OAuth error:", err);
+            reject(err);
+        };
+        // It might be useful to add a timeout here
+        // setTimeout(() => reject(new Error('OAuth redirect timeout')), 60000); // 1 minute timeout
+    });
+
+    resolveAuthPromise = null;
+    rejectAuthPromise = null;
+
+    const { tokens: newTokens } = await oAuth2Client.getToken({
+        code: code,
+        code_verifier: code_verifier,
+        redirect_uri: REDIRECT_URI
+    });
     oAuth2Client.setCredentials(newTokens);
-    await saveSecretToMongoDB(GOOGLE_OAUTH_TOKENS_NAME, newTokens); // Save new token
-    console.log('New token obtained and saved to MongoDB.');
+    await keytar.setPassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT_OAUTH, JSON.stringify(newTokens));
+    console.log('New token obtained and saved to keychain.');
     token = newTokens; // Update the token variable for current session
   }
 
