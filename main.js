@@ -16,8 +16,7 @@ const { randomBytes, createHash } = require('crypto');
 const KEYTAR_SERVICE = 'electron-gmail-app';
 const KEYTAR_ACCOUNT_OAUTH = 'google_oauth_tokens';
 // IMPORTANT: Replace with your actual Google Client ID from Google Cloud Console.
-const GOOGLE_CLIENT_ID = 'YOUR_CLIENT_ID_HERE';
-console.log("IMPORTANT: Remember to replace 'YOUR_CLIENT_ID_HERE' with your actual Google Client ID in main.js and configure the REDIRECT_URI in your Google Cloud Console.");
+const GOOGLE_CLIENT_ID = '304008124129-6j79vk15selo581v1m870dnesma2vk9e.apps.googleusercontent.com';
 const REDIRECT_URI = 'com.my-electron-app.oauth:/oauth2redirect';
 
 
