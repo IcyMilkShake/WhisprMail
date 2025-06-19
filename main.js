@@ -17,8 +17,8 @@ const KEYTAR_SERVICE = 'electron-gmail-app';
 const KEYTAR_ACCOUNT_OAUTH = 'google_oauth_tokens';
 // IMPORTANT: Replace with your actual Google Client ID from Google Cloud Console.
 const GOOGLE_CLIENT_ID = 'YOUR_CLIENT_ID_HERE';
-console.log("IMPORTANT: Remember to replace 'YOUR_CLIENT_ID_HERE' with your actual Google Client ID in main.js and configure the REDIRECT_URI in your Google Cloud Console.");
-const REDIRECT_URI = 'com.my-electron-app.oauth:/oauth2redirect';
+console.log(`IMPORTANT: Remember to replace 'YOUR_CLIENT_ID_HERE' with your actual Google Client ID in main.js. Also, ensure the REDIRECT_URI ('${REDIRECT_URI}') is configured in your Google Cloud Console.`);
+const REDIRECT_URI = 'http://localhost:3000/callback';
 
 
 const NOTIFIABLE_AUTHORS_PATH = path.join(app.getPath('userData'), 'notifiable_authors.json');
@@ -212,15 +212,6 @@ app.whenReady().then(async () => {
 
   loadAppSettings(); // Load settings first
   await saveAppSettings(); // Ensure file exists with current/default settings
-
-  // Register custom protocol
-  if (process.defaultApp) {
-    if (process.argv.length >= 2) {
-      app.setAsDefaultProtocolClient(REDIRECT_URI.split(':')[0], process.execPath, [path.resolve(process.argv[1])]);
-    }
-  } else {
-    app.setAsDefaultProtocolClient(REDIRECT_URI.split(':')[0]);
-  }
   
   createWindow();
   loadNotifiableAuthors(); // This can come after loading app settings
@@ -231,61 +222,7 @@ app.whenReady().then(async () => {
   } catch (error) {
     console.error('Failed to initialize:', error);
   }
-
-  // For macOS
-  app.on('open-url', (event, url) => {
-    event.preventDefault(); // Prevent default browser opening
-    if (url.startsWith(REDIRECT_URI)) {
-      handleOAuthRedirect(url);
-    }
-  });
-
-  // For Windows/Linux
-  const gotTheLock = app.requestSingleInstanceLock();
-  if (!gotTheLock) {
-    app.quit();
-  } else {
-    app.on('second-instance', (event, commandLine, workingDirectory) => {
-      // Someone tried to run a second instance, we should focus our window.
-      if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.focus();
-      }
-      // Check if the command line contains our custom protocol URL
-      const url = commandLine.pop(); // Last arg is usually the URL
-      if (url.startsWith(REDIRECT_URI)) {
-        handleOAuthRedirect(url);
-      }
-    });
-  }
 });
-
-function handleOAuthRedirect(url) {
-  try {
-    const parsedUrl = new URL(url);
-    const code = parsedUrl.searchParams.get('code');
-    const error = parsedUrl.searchParams.get('error');
-
-    if (error) {
-      if (rejectAuthPromise) rejectAuthPromise(new Error(`OAuth Error: ${error}`));
-      else console.error('OAuth Error:', error);
-    } else if (code) {
-      if (resolveAuthPromise) resolveAuthPromise(code);
-      else console.log('OAuth Code received but no promise to resolve:', code);
-    } else {
-      if (rejectAuthPromise) rejectAuthPromise(new Error('OAuth Error: No code or error in redirect URL.'));
-      else console.error('OAuth Error: No code or error in redirect URL.');
-    }
-  } catch (err) {
-     if (rejectAuthPromise) rejectAuthPromise(err);
-     else console.error('Error parsing redirect URL:', err);
-  }
-  // Focus main window if available
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
-  }
-}
 
 ipcMain.on('show-full-email-in-main-window', async (event, messageId) => {
   console.log(`IPC: Request to open email ID ${messageId} externally.`); // Log message updated for clarity
@@ -342,10 +279,69 @@ app.on('activate', () => {
 });
 
 // --- GMAIL AUTHENTICATION & API SETUP ---
+function createAuthServer() {
+  return new Promise((resolve, reject) => { // Note: This promise is for server setup status, not the auth code itself.
+    const server = http.createServer(async (req, res) => {
+      try {
+        const requestUrl = new URL(req.url, 'http://localhost:3000'); // Changed from url to requestUrl
+        if (requestUrl.pathname === '/callback') {
+          const code = requestUrl.searchParams.get('code');
+          const error = requestUrl.searchParams.get('error');
+
+          if (error) {
+            res.writeHead(400, { 'Content-Type': 'text/html' });
+            res.end('<h1>Authentication Failed</h1><p>An error occurred. You can close this window.</p>');
+            if (rejectAuthPromise) rejectAuthPromise(new Error(`OAuth Error: ${error}`));
+            else console.error('OAuth Error during redirect:', error);
+          } else if (code) {
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end('<h1>Authentication Successful!</h1><p>You can close this window. The application has received the necessary code.</p>');
+            if (resolveAuthPromise) resolveAuthPromise(code);
+            else console.log('OAuth code received but no promise to resolve:', code);
+          } else {
+            res.writeHead(400, { 'Content-Type': 'text/html' });
+            res.end('<h1>Invalid Request</h1><p>No code or error found in the request. You can close this window.</p>');
+            if (rejectAuthPromise) rejectAuthPromise(new Error('OAuth Error: No code or error in redirect URL.'));
+            else console.error('OAuth Error: No code or error in redirect URL.');
+          }
+        } else {
+          res.writeHead(404, { 'Content-Type': 'text/html' });
+          res.end('<h1>Not Found</h1>');
+        }
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'text/html' });
+        res.end('<h1>Server Error</h1><p>An internal error occurred.</p>');
+        if (rejectAuthPromise) rejectAuthPromise(e); // Reject the auth promise on server processing error
+        else console.error('Error processing OAuth redirect:', e);
+      } finally {
+        server.close(() => {
+          console.log('OAuth redirect server closed.');
+        });
+      }
+    });
+
+    server.on('error', (err) => {
+      // This handles errors like EADDRINUSE
+      if (rejectAuthPromise) {
+        rejectAuthPromise(new Error(`Auth server failed to start: ${err.message}`));
+      } else {
+        console.error('Critical: Auth server failed to start and no rejectAuthPromise to call:', err);
+      }
+      // Ensure the server setup promise itself is rejected if it hasn't resolved/rejected.
+      reject(err);
+    });
+
+    server.listen(3000, 'localhost', () => {
+      console.log('OAuth redirect server listening on http://localhost:3000/callback');
+      resolve(server); // Resolve the server setup promise with the server instance.
+    });
+  });
+}
+
 async function initializeGmail() {
   // SCOPES is now a global constant
   oAuth2Client = new google.auth.OAuth2(GOOGLE_CLIENT_ID, undefined, REDIRECT_URI);
-  console.log("Initializing Gmail: OAuth2 client created for PKCE.");
+  console.log("Initializing Gmail: OAuth2 client created for PKCE with http redirect.");
 
   // Add event listener for token updates
   oAuth2Client.on('tokens', (tokens) => {
@@ -394,18 +390,29 @@ async function initializeGmail() {
     const open = (await import('open')).default;
     await open(authUrl);
 
-    // Wait for the redirect to be handled
+    // Wait for the authorization code from the local server
     const code = await new Promise((resolve, reject) => {
-        resolveAuthPromise = resolve;
-        rejectAuthPromise = (err) => {
-            console.error("OAuth Error during token exchange promise. This might be due to an incorrect GOOGLE_CLIENT_ID or REDIRECT_URI mismatch in your Google Cloud Console. Please verify your setup.");
-            console.error("Original OAuth error:", err);
+        resolveAuthPromise = resolve; // Set global promise resolvers
+        rejectAuthPromise = (err) => { // Ensure error message for user
+            console.error(`OAuth Error during authorization. This might be due to an incorrect GOOGLE_CLIENT_ID or REDIRECT_URI ('${REDIRECT_URI}') mismatch in your Google Cloud Console, or the local server failed (e.g. port in use). Please verify your setup and check console for more details.`);
+            console.error("Original OAuth error details:", err);
             reject(err);
         };
-        // It might be useful to add a timeout here
-        // setTimeout(() => reject(new Error('OAuth redirect timeout')), 60000); // 1 minute timeout
+
+        // Start the server. createAuthServer() itself returns a promise for server setup.
+        createAuthServer().catch(serverError => {
+            // This catch is for immediate server setup errors (e.g., port already in use)
+            // The rejectAuthPromise should be called from within createAuthServer for such cases.
+            // However, as a fallback:
+            if (rejectAuthPromise) {
+                rejectAuthPromise(serverError);
+            } else {
+                console.error("Critical: Auth server setup failed and no rejectAuthPromise to call.", serverError);
+            }
+        });
     });
 
+    // Clear global promises after use
     resolveAuthPromise = null;
     rejectAuthPromise = null;
 
