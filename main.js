@@ -103,6 +103,12 @@ let openEmailViewWindows = new Set();
 // For installed applications (like Electron apps) using PKCE, the client ID is not a secret.
 const GOOGLE_CLIENT_ID = '304008124129-6j79vk15selo581v1m870dnesma2vk9e.apps.googleusercontent.com';
 
+// IMPORTANT: User must set the GOOGLE_CLIENT_SECRET environment variable for the application to work.
+// This is a sensitive value and should not be hardcoded. It is used for server-side operations
+// or specific OAuth flows that require a client secret. For Electron apps primarily using PKCE,
+// this might be used for other Google services or specific backend interactions.
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+
 // Theme Palettes (mirrored from renderer.js)
 const themePalettes = {
   dark: { // Current default theme - values from :root in index.html
@@ -367,6 +373,7 @@ async function exchangeCodeForTokensManually(authCode, verifier) {
 
   const params = new URLSearchParams();
   params.append('client_id', GOOGLE_CLIENT_ID); // GOOGLE_CLIENT_ID is a module-level constant
+  params.append('client_secret', GOOGLE_CLIENT_SECRET); // GOOGLE_CLIENT_SECRET is a module-level constant
   params.append('code', authCode);
   params.append('code_verifier', verifier); // PKCE parameter
   params.append('redirect_uri', redirectUri);
@@ -439,9 +446,9 @@ async function initializeGmail() {
     // throw new Error('CRITICAL: Placeholder GOOGLE_CLIENT_ID needs to be replaced.');
   }
 
-  // No client_secret for PKCE public clients
-  oAuth2Client = new google.auth.OAuth2(GOOGLE_CLIENT_ID, undefined, 'http://localhost:3000');
-  console.log("Initializing Gmail: OAuth2 client created for PKCE.");
+  // Client secret is now used, ensure GOOGLE_CLIENT_SECRET is set in .env
+  oAuth2Client = new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, 'http://localhost:3000');
+  console.log("Initializing Gmail: OAuth2 client created.");
 
   let token = await getTokensFromKeytar(); // Use keytar to get tokens
 
