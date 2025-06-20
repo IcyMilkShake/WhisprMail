@@ -417,22 +417,41 @@ function createAuthServer() {
 
         if (error) {
           res.writeHead(400, { 'Content-Type': 'text/html' });
-          res.end('<h1>Error</h1><p>Close this window.</p>');
-          server.close();
-          reject(new Error(error));
+          res.end('<h1>OAuth Error</h1><p>An error occurred during authentication. You can close this window.</p>');
+          server.close(() => console.log('Auth server closed due to OAuth error.'));
+          reject(new Error(`OAuth authentication error: ${error}`));
           return;
         }
 
         if (code) {
           res.writeHead(200, { 'Content-Type': 'text/html' });
-          res.end('<h1>Success!</h1><p>Close this window.</p>');
-          server.close();
+          res.end('<h1>Authentication Successful!</h1><p>You can close this window. The application will now proceed.</p>');
+          server.close(() => console.log('Auth server closed after successful code retrieval.'));
           resolve(code);
           return;
         }
+
+        // If neither code nor error is present, it's an unexpected request.
+        res.writeHead(400, { 'Content-Type': 'text/html' });
+        res.end('<h1>Invalid Request</h1><p>This page was accessed incorrectly. Please close this window.</p>');
+        // server.close(); // Optionally close for any other request too
+        // reject(new Error('Invalid request to auth server'));
       }
     });
-    server.listen(3000, 'localhost');
+
+    server.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error('Error: Port 3000 is already in use. Cannot start authentication server.');
+        reject(new Error('Port 3000 is already in use. Please ensure no other application is using it.'));
+      } else {
+        console.error('Auth server encountered an error:', err);
+        reject(err);
+      }
+    });
+
+    server.listen(3000, 'localhost', () => {
+      console.log('Authentication server listening on http://localhost:3000');
+    });
   });
 }
 
@@ -1441,6 +1460,7 @@ function createEnhancedNotificationHTML(emailData) {
           gap: 5px; /* Reduced gap */
           flex-shrink: 0;
           align-items: center;
+          margin-right: 30px; /* Added margin to prevent overlap */
         }
         
         .urgency-badge {
@@ -2278,9 +2298,26 @@ ipcMain.handle('check-new-mail', async () => {
 });
 
 ipcMain.handle('start-monitoring', async () => {
-  if (!gmail) try { await initializeGmail(); } catch (e) { console.error("Gmail init failed in start-monitoring:", e); return 'Gmail initialization failed.'; }
+  if (!gmail) {
+    try {
+      await initializeGmail();
+    } catch (e) {
+      console.error("Gmail init failed in start-monitoring:", e);
+      // Ensure a string is returned in all error paths
+      return 'Gmail initialization failed due to: ' + e.message;
+    }
+  }
+  // Ensure a string is returned if gmail is still not initialized
   if (!gmail) return 'Gmail initialization failed.';
-  return await startMonitoring();
+
+  // Await the result of startMonitoring and return it
+  try {
+    const result = await startMonitoring(); // 'startMonitoring' is the function defined in main.js
+    return result; // This will be a string like 'Monitoring started successfully.' or 'Monitoring already active.'
+  } catch (error) {
+    console.error('Error during startMonitoring invocation:', error);
+    return 'Failed to start monitoring: ' + error.message;
+  }
 });
 
 ipcMain.handle('stop-monitoring', () => stopMonitoring());
