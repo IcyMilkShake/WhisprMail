@@ -107,7 +107,7 @@ const GOOGLE_CLIENT_ID = '304008124129-6j79vk15selo581v1m870dnesma2vk9e.apps.goo
 // This is a sensitive value and should not be hardcoded. It is used for server-side operations
 // or specific OAuth flows that require a client secret. For Electron apps primarily using PKCE,
 // this might be used for other Google services or specific backend interactions.
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const GOOGLE_CLIENT_SECRET = "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";
 
 // Theme Palettes (mirrored from renderer.js)
 const themePalettes = {
