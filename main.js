@@ -1,6 +1,8 @@
 const { app, BrowserWindow, ipcMain, Notification, shell, screen, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto'); // Added for PKCE
+const keytar = require('keytar'); // Added for keytar
 const { google } = require('googleapis');
 // const open = require('open').default || require('open'); // Changed to dynamic import
 const http = require('http');
@@ -8,103 +10,71 @@ const say = require('say');
 const { spawn } = require('child_process');
 const puppeteer = require('puppeteer');
 require('dotenv').config();
-const { MongoClient } = require('mongodb');
+// const { MongoClient } = require('mongodb'); // MongoDB removed
 const os = require('os'); // Or 'process' for environment variables, depending on how it's used later
 
-let huggingFaceTokenFromDB = null; // Variable to store the fetched token
+// --- Keytar Constants ---
+// KEYTAR_SERVICE_NAME: Used by keytar to identify the application or service storing the credential.
+// It's a namespace for your credentials. For Google OAuth tokens.
+const KEYTAR_SERVICE_NAME = 'WhisprMailGoogleOAuth';
+// KEYTAR_ACCOUNT_NAME: The specific account name under the service. Here, it's a generic name
+// as we're storing the token bundle for the primary user of the app for this service.
+const KEYTAR_ACCOUNT_NAME = 'userTokens';
+// Hugging Face token constants removed
 
-// --- MongoDB Configuration ---
-// IMPORTANT: It's STRONGLY recommended to use an environment variable for the MongoDB URI in production.
-// Example: export MONGODB_URI="mongodb+srv://user:pass@cluster.mongodb.net/yourDb?retryWrites=true&w=majority"
-const MONGO_URI = process.env.MONGODB_URI || "mongodb+srv://milkshake:t5975878@cluster0.k5dmweu.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
-const DATABASE_NAME = "EnvironmentVariables";
-const COLLECTION_NAME = "Variables";
-const TOKEN_NAME_TO_FETCH = "HUGGING_FACE_TOKEN"; // The 'name' of the token document/record
-const GOOGLE_CLIENT_ID_NAME = "GOOGLE_CLIENT_ID";
-const GOOGLE_CLIENT_SECRET_NAME = "GOOGLE_CLIENT_SECRET";
-const GOOGLE_OAUTH_TOKENS_NAME = "GOOGLE_OAUTH_TOKENS";
-getMongoClient()
-// --- MongoDB Helper Functions ---
-async function getMongoClient() {
-    const client = new MongoClient(MONGO_URI);
-    try {
-        await client.connect();
-        console.log("Successfully connected to MongoDB from main.js.");
-        return client;
-    } catch (err) {
-        console.error("MongoDB connection failed in main.js:", err);
-        throw err;
-    }
-}
-async function getSecretFromMongoDB(tokenName) {
-    let client;
-    try {
-        client = await getMongoClient();
-        if (!client) return null;
-
-        const db = client.db(DATABASE_NAME);
-        const collection = db.collection(COLLECTION_NAME);
-
-        // Assuming documents in 'EnvironmentVariables' have a 'name' field identifying the token
-        // and a 'value' field holding the token string.
-        const secretDocument = await collection.findOne({ name: tokenName });
-
-        if (secretDocument && secretDocument.value) {
-            console.log(`Successfully fetched secret: ${tokenName} from MongoDB.`);
-            return secretDocument.value;
-        } else {
-            console.warn(`Secret not found in MongoDB: ${tokenName} in collection ${COLLECTION_NAME}.`);
-            return null;
-        }
-    } catch (err) {
-        console.error(`Error fetching secret '${tokenName}' from MongoDB:`, err);
-        return null;
-    } finally {
-        if (client) {
-            await client.close();
-            console.log("MongoDB connection closed in main.js.");
-        }
-    }
-}
-
-async function saveSecretToMongoDB(tokenName, tokenValue) {
-  let client;
+// --- Keytar Helper Functions ---
+/**
+ * Saves the provided tokens (JSON stringified) to the system keychain using keytar.
+ * @param {object} tokens - The token object to save.
+ */
+async function saveTokensWithKeytar(tokens) {
   try {
-    client = await getMongoClient();
-    if (!client) {
-      console.error("saveSecretToMongoDB: Failed to get MongoDB client.");
-      return false; // Or throw error
-    }
-
-    const db = client.db(DATABASE_NAME);
-    const collection = db.collection(COLLECTION_NAME);
-
-    const result = await collection.updateOne(
-      { name: tokenName },
-      { $set: { value: tokenValue } },
-      { upsert: true }
-    );
-
-    if (result.modifiedCount > 0 || result.upsertedCount > 0) {
-      console.log(`Successfully saved/updated secret: ${tokenName} in MongoDB.`);
-      return true;
-    } else {
-      // This case might indicate that the value was the same, so nothing was modified.
-      // Or it could be an unexpected scenario. For simplicity, we can assume same-value updates are okay.
-      console.log(`Secret ${tokenName} value unchanged or write operation had no effect.`);
-      return true; // Still consider it a success if no error, but value was same.
-    }
-  } catch (err) {
-    console.error(`Error saving secret '${tokenName}' to MongoDB:`, err);
-    return false; // Or throw error
-  } finally {
-    if (client) {
-      await client.close();
-      console.log("MongoDB connection closed after saving secret in saveSecretToMongoDB.");
-    }
+    await keytar.setPassword(KEYTAR_SERVICE_NAME, KEYTAR_ACCOUNT_NAME, JSON.stringify(tokens));
+    console.log('Tokens saved to keytar successfully.');
+  } catch (error) {
+    console.error('Error saving tokens to keytar:', error);
+    // Potentially throw the error or handle it if keytar is unavailable
   }
 }
-// --- End of MongoDB Functions ---
+
+/**
+ * Retrieves tokens from the system keychain using keytar.
+ * Parses the JSON string back into an object.
+ * @returns {object|null} The token object or null if not found or an error occurs.
+ */
+async function getTokensFromKeytar() {
+  try {
+    const tokenString = await keytar.getPassword(KEYTAR_SERVICE_NAME, KEYTAR_ACCOUNT_NAME);
+    if (tokenString) {
+      console.log('Tokens retrieved from keytar.');
+      return JSON.parse(tokenString);
+    }
+    console.log('No tokens found in keytar.');
+    return null;
+  } catch (error) {
+    console.error('Error retrieving tokens from keytar:', error);
+    // Potentially throw the error or handle it if keytar is unavailable
+    return null;
+  }
+}
+
+/**
+ * Deletes tokens from the system keychain using keytar.
+ */
+async function deleteTokensFromKeytar() {
+  try {
+    const success = await keytar.deletePassword(KEYTAR_SERVICE_NAME, KEYTAR_ACCOUNT_NAME);
+    if (success) {
+      console.log('Tokens deleted from keytar.');
+    } else {
+      console.warn('Could not delete tokens from keytar (they might not have existed).');
+    }
+  } catch (error) {
+    console.error('Error deleting tokens from keytar:', error);
+  }
+}
+
+// --- End of MongoDB Functions --- (All MongoDB functions removed)
 
 const NOTIFIABLE_AUTHORS_PATH = path.join(app.getPath('userData'), 'notifiable_authors.json');
 const SETTINGS_PATH = path.join(app.getPath('userData'), 'app_settings.json');
@@ -121,6 +91,7 @@ const SCOPES = [
 let mainWindow;
 let gmail;
 let oAuth2Client;
+let currentCodeVerifier; // Added for PKCE
 let isMonitoring = false;
 let knownEmailIds = new Set();
 let monitoringStartTime = null;
@@ -183,7 +154,7 @@ let settings = {
   enableReadTime: true, 
   speakSenderName: true, // <-- ADD THIS LINE
   speakSubject: true,    // <-- ADD THIS LINE
-  huggingfaceToken: process.env.HUGGINGFACE_TOKEN, // Retain from .env
+  // huggingfaceToken: process.env.HUGGINGFACE_TOKEN, // Removed from settings
   showUrgency: true,
   appearanceTheme: 'dark' // Added new theme setting
 };
@@ -195,12 +166,7 @@ function executePythonScript(scriptName, scriptArgs = [], inputText = null, time
 
     // --- Prepare environment for Python script ---
     const pythonEnv = { ...process.env }; // Clone current environment
-    if (huggingFaceTokenFromDB) {
-      pythonEnv.HUGGING_FACE_HUB_TOKEN = huggingFaceTokenFromDB;
-      console.log(`Main.js: Setting HUGGING_FACE_HUB_TOKEN for ${scriptName}.`);
-    } else {
-      console.log(`Main.js: HUGGING_FACE_HUB_TOKEN not available for ${scriptName}.`);
-    }
+    // Hugging Face token logic removed from here
     // --- End of environment preparation ---
 
     // Pass the modified environment to spawn
@@ -283,21 +249,9 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  // --- Fetch Hugging Face Token ---
-  try {
-    console.log("Main.js: Attempting to fetch HUGGING_FACE_TOKEN from MongoDB on app ready.");
-    huggingFaceTokenFromDB = await getSecretFromMongoDB(TOKEN_NAME_TO_FETCH);
-    if (huggingFaceTokenFromDB) {
-      console.log("Main.js: HUGGING_FACE_TOKEN fetched successfully from MongoDB.");
-      // Optionally, log a part of the token for verification, but be careful with sensitive data
-      // console.log(`Main.js: Token (first 5 chars): ${huggingFaceTokenFromDB.substring(0,5)}...`);
-    } else {
-      console.warn("Main.js: HUGGING_FACE_TOKEN could not be fetched from MongoDB. Python scripts might not have authentication.");
-    }
-  } catch (error) {
-    console.error("Main.js: Error fetching HUGGING_FACE_TOKEN from MongoDB on app ready:", error);
-  }
-  // --- End of Token Fetching ---
+  // Hugging Face token fetching logic removed.
+  // Users needing Python scripts with Hugging Face will need to set HUGGING_FACE_HUB_TOKEN
+  // as an environment variable manually or through other means outside this app's direct management.
 
   loadAppSettings(); // Load settings first
   await saveAppSettings(); // Ensure file exists with current/default settings
@@ -367,6 +321,32 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });
 
+// --- PKCE HELPER FUNCTIONS ---
+// Proof Key for Code Exchange (PKCE) is an extension to the Authorization Code flow
+// to prevent CSRF and authorization code injection attacks.
+
+/**
+ * Generates a cryptographically random string used as the PKCE code verifier.
+ * The verifier is a high-entropy secret.
+ * @returns {string} A base64url encoded random string.
+ */
+function generateCodeVerifier() {
+  return crypto.randomBytes(64).toString('base64url');
+}
+
+/**
+ * Generates a PKCE code challenge from a given code verifier.
+ * The challenge is typically a SHA256 hash of the verifier, then base64url encoded.
+ * @param {string} codeVerifier - The PKCE code verifier.
+ * @returns {string} The base64url encoded SHA256 hash of the verifier.
+ */
+function generateCodeChallenge(codeVerifier) {
+  return crypto
+    .createHash('sha256')
+    .update(codeVerifier)
+    .digest('base64url'); // Ensure base64url encoding
+}
+
 // --- GMAIL AUTHENTICATION & API SETUP ---
 // Create OAuth server
 function createAuthServer() {
@@ -402,46 +382,64 @@ async function initializeGmail() {
   // SCOPES is now a global constant
   // const TOKEN_PATH = path.join(__dirname, 'token.json'); // Removed
 
-  const client_id = await getSecretFromMongoDB(GOOGLE_CLIENT_ID_NAME);
-  const client_secret = await getSecretFromMongoDB(GOOGLE_CLIENT_SECRET_NAME);
+  // IMPORTANT: User must replace 'YOUR_ACTUAL_CLIENT_ID' with their actual Google Client ID.
+  // This is a public identifier for the application, used by Google to identify this app.
+  // For installed applications (like Electron apps) using PKCE, the client ID is not a secret.
+  const GOOGLE_CLIENT_ID = 'YOUR_ACTUAL_CLIENT_ID';
 
-  if (!client_id || !client_secret) {
-    console.error('CRITICAL: Google Client ID or Secret not found in MongoDB. Cannot initialize Gmail.');
-    throw new Error('CRITICAL: Google Client ID or Secret not found in MongoDB.');
+  if (GOOGLE_CLIENT_ID === 'YOUR_ACTUAL_CLIENT_ID') {
+    console.error('CRITICAL: Placeholder GOOGLE_CLIENT_ID is being used. Please replace it with your actual client ID in main.js.');
+    // Optionally, throw an error to prevent the application from running with a placeholder
+    // throw new Error('CRITICAL: Placeholder GOOGLE_CLIENT_ID needs to be replaced.');
   }
 
-  oAuth2Client = new google.auth.OAuth2(client_id, client_secret, 'http://localhost:3000');
-  console.log("Initializing Gmail: OAuth2 client created.");
+  // No client_secret for PKCE public clients
+  oAuth2Client = new google.auth.OAuth2(GOOGLE_CLIENT_ID, undefined, 'http://localhost:3000');
+  console.log("Initializing Gmail: OAuth2 client created for PKCE.");
 
-  let token = await getSecretFromMongoDB(GOOGLE_OAUTH_TOKENS_NAME);
+  let token = await getTokensFromKeytar(); // Use keytar to get tokens
 
   if (token) {
     oAuth2Client.setCredentials(token);
     try {
       await oAuth2Client.getAccessToken(); // Check if token is valid/expired
-      console.log("Successfully used token from MongoDB.");
+      console.log("Successfully used token from keytar.");
     } catch (error) {
-      console.log('Token from MongoDB expired or invalid, re-authenticating...');
+      console.log('Token from keytar expired or invalid, deleting and re-authenticating...');
+      await deleteTokensFromKeytar(); // Delete stale tokens from keytar
       token = null; // Signal to get a new token
-      // No need to delete from DB here, will be overwritten by saveSecretToMongoDB
     }
   }
   // If token is null (either not found, or was found but expired)
   if (!token) {
-    console.log('No valid token found in MongoDB, starting new auth flow...');
+    console.log('No valid token found in keytar, starting new auth flow with PKCE...');
+    // PKCE Step 1: Generate a code verifier and a code challenge.
+    // The verifier is a secret, and the challenge is sent to the authorization server.
+    currentCodeVerifier = generateCodeVerifier(); // Store the verifier locally.
+    const codeChallenge = generateCodeChallenge(currentCodeVerifier); // Create the challenge from the verifier.
+
+    // PKCE Step 2: Include the code challenge and method in the authorization request.
     const authUrl = oAuth2Client.generateAuthUrl({
-      access_type: 'offline',
-      scope: SCOPES, // SCOPES is a global constant
-      prompt: 'consent'
+      access_type: 'offline', // Request a refresh token.
+      scope: SCOPES,
+      prompt: 'consent', // Ensure the user sees the consent screen.
+      code_challenge: codeChallenge, // The generated code challenge.
+      code_challenge_method: 'S256' // Method used to generate the challenge (SHA256).
     });
 
-    const open = (await import('open')).default; // Dynamic import
-    await open(authUrl);
-    const code = await createAuthServer(); // Assumes createAuthServer is defined elsewhere
-    const { tokens: newTokens } = await oAuth2Client.getToken(code); // Renamed to newTokens for clarity
+    const open = (await import('open')).default; // Dynamic import for 'open' module.
+    await open(authUrl); // Open the authorization URL in the user's browser.
+    const code = await createAuthServer(); // Wait for the authorization code from the local server.
+
+    // PKCE Step 3: Exchange the authorization code for tokens.
+    // The googleapis library handles sending the code_verifier automatically if it's set on the client.
+    // This `codeVerifier` property must match the one used to generate the `codeChallenge` sent in Step 2.
+    oAuth2Client.codeVerifier = currentCodeVerifier; // Attach the original verifier to the OAuth2 client.
+
+    const { tokens: newTokens } = await oAuth2Client.getToken(code); // Exchange code for tokens.
     oAuth2Client.setCredentials(newTokens);
-    await saveSecretToMongoDB(GOOGLE_OAUTH_TOKENS_NAME, newTokens); // Save new token
-    console.log('New token obtained and saved to MongoDB.');
+    await saveTokensWithKeytar(newTokens); // Save new token to keytar
+    console.log('New token obtained with PKCE and saved to keytar.');
     token = newTokens; // Update the token variable for current session
   }
 
