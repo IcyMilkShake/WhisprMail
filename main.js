@@ -98,6 +98,11 @@ let monitoringStartTime = null;
 let activeNotifications = new Set(); // Track active notification windows
 let openEmailViewWindows = new Set();
 
+// IMPORTANT: User must replace 'YOUR_ACTUAL_CLIENT_ID' with their actual Google Client ID.
+// This is a public identifier for the application, used by Google to identify this app.
+// For installed applications (like Electron apps) using PKCE, the client ID is not a secret.
+const GOOGLE_CLIENT_ID = 'YOUR_ACTUAL_CLIENT_ID';
+
 // Theme Palettes (mirrored from renderer.js)
 const themePalettes = {
   dark: { // Current default theme - values from :root in index.html
@@ -347,6 +352,52 @@ function generateCodeChallenge(codeVerifier) {
     .digest('base64url'); // Ensure base64url encoding
 }
 
+/**
+ * Manually exchanges an authorization code for OAuth tokens using a direct HTTPS request.
+ * This is part of the PKCE flow, done after the user authorizes the app and a code is received.
+ * @param {string} authCode - The authorization code received from the OAuth server.
+ * @param {string} verifier - The original PKCE code_verifier.
+ * @returns {Promise<object>} A promise that resolves with the token object (access_token, refresh_token, etc.).
+ */
+async function exchangeCodeForTokensManually(authCode, verifier) {
+  const tokenEndpoint = 'https://oauth2.googleapis.com/token';
+  // This redirect URI MUST match exactly what was used in the initial auth URL,
+  // and what is configured in your Google Cloud Console for this client ID.
+  const redirectUri = 'http://localhost:3000';
+
+  const params = new URLSearchParams();
+  params.append('client_id', GOOGLE_CLIENT_ID); // GOOGLE_CLIENT_ID is a module-level constant
+  params.append('code', authCode);
+  params.append('code_verifier', verifier); // PKCE parameter
+  params.append('redirect_uri', redirectUri);
+  params.append('grant_type', 'authorization_code'); // Specifies the grant type
+
+  try {
+    console.log('Exchanging code for tokens manually with params:', params.toString());
+    // `fetch` is globally available in recent Node.js versions (>=18) and Electron main process.
+    const response = await fetch(tokenEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: params.toString(),
+    });
+
+    const responseBody = await response.json();
+
+    if (!response.ok) {
+      console.error('Token exchange failed! Response Status:', response.status, 'Body:', responseBody);
+      throw new Error(`Token exchange failed with status: ${response.status} - ${responseBody.error_description || responseBody.error || 'Unknown error'}`);
+    }
+
+    console.log('Tokens obtained successfully via manual exchange.');
+    return responseBody; // Contains access_token, refresh_token, id_token, scope, token_type, expiry_date
+  } catch (error) {
+    console.error('Error during manual token exchange:', error);
+    throw error; // Re-throw to be caught by initializeGmail or other callers
+  }
+}
+
 // --- GMAIL AUTHENTICATION & API SETUP ---
 // Create OAuth server
 function createAuthServer() {
@@ -382,11 +433,7 @@ async function initializeGmail() {
   // SCOPES is now a global constant
   // const TOKEN_PATH = path.join(__dirname, 'token.json'); // Removed
 
-  // IMPORTANT: User must replace 'YOUR_ACTUAL_CLIENT_ID' with their actual Google Client ID.
-  // This is a public identifier for the application, used by Google to identify this app.
-  // For installed applications (like Electron apps) using PKCE, the client ID is not a secret.
-  const GOOGLE_CLIENT_ID = 'YOUR_ACTUAL_CLIENT_ID';
-
+  // GOOGLE_CLIENT_ID is now a module-level constant.
   if (GOOGLE_CLIENT_ID === 'YOUR_ACTUAL_CLIENT_ID') {
     console.error('CRITICAL: Placeholder GOOGLE_CLIENT_ID is being used. Please replace it with your actual client ID in main.js.');
     // Optionally, throw an error to prevent the application from running with a placeholder
@@ -431,16 +478,20 @@ async function initializeGmail() {
     await open(authUrl); // Open the authorization URL in the user's browser.
     const code = await createAuthServer(); // Wait for the authorization code from the local server.
 
-    // PKCE Step 3: Exchange the authorization code for tokens.
-    // The googleapis library handles sending the code_verifier automatically if it's set on the client.
-    // This `codeVerifier` property must match the one used to generate the `codeChallenge` sent in Step 2.
-    oAuth2Client.codeVerifier = currentCodeVerifier; // Attach the original verifier to the OAuth2 client.
+    // PKCE Step 3: Exchange the authorization code for tokens MANUALLY.
+    // oAuth2Client.codeVerifier = currentCodeVerifier; // This was for googleapis built-in exchange.
+    // const { tokens: newTokens } = await oAuth2Client.getToken(code); // REPLACED by manual exchange.
 
-    const { tokens: newTokens } = await oAuth2Client.getToken(code); // Exchange code for tokens.
+    console.log('Attempting manual token exchange with server-provided code...');
+    const newTokens = await exchangeCodeForTokensManually(code, currentCodeVerifier);
+
+    // After manually fetching tokens, they must be set on the oAuth2Client instance
+    // so that subsequent calls using the `googleapis` library are authenticated.
     oAuth2Client.setCredentials(newTokens);
-    await saveTokensWithKeytar(newTokens); // Save new token to keytar
-    console.log('New token obtained with PKCE and saved to keytar.');
-    token = newTokens; // Update the token variable for current session
+
+    await saveTokensWithKeytar(newTokens); // Save the newly obtained tokens securely.
+    console.log('New tokens obtained via manual exchange and saved to keytar.');
+    token = newTokens; // Update the in-memory token variable for the current session.
   }
 
   gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
