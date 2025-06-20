@@ -464,14 +464,20 @@ async function initializeGmail() {
     currentCodeVerifier = generateCodeVerifier(); // Store the verifier locally.
     const codeChallenge = generateCodeChallenge(currentCodeVerifier); // Create the challenge from the verifier.
 
-    // PKCE Step 2: Include the code challenge and method in the authorization request.
-    const authUrl = oAuth2Client.generateAuthUrl({
-      access_type: 'offline', // Request a refresh token.
-      scope: SCOPES,
-      prompt: 'consent', // Ensure the user sees the consent screen.
-      code_challenge: codeChallenge, // The generated code challenge.
-      code_challenge_method: 'S256' // Method used to generate the challenge (SHA256).
+    // PKCE Step 2: Manually construct the authorization URL.
+    console.log('Manually constructing authorization URL...');
+    const authParams = new URLSearchParams({
+      client_id: GOOGLE_CLIENT_ID, // Module-level constant
+      redirect_uri: 'http://localhost:3000', // Must match oAuth2Client and Google Cloud Console
+      response_type: 'code',
+      scope: SCOPES.join(' '), // Scopes array to space-separated string
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
+      access_type: 'offline', // Request a refresh token
+      prompt: 'consent'       // Ensure the consent screen is shown
     });
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${authParams.toString()}`;
+    console.log('Manually constructed authUrl:', authUrl);
 
     const open = (await import('open')).default; // Dynamic import for 'open' module.
     await open(authUrl); // Open the authorization URL in the user's browser.
