@@ -13,8 +13,6 @@ require('dotenv').config();
 // const { MongoClient } = require('mongodb'); // MongoDB removed
 const os = require('os'); // Or 'process' for environment variables, depending on how it's used later
 
-let huggingFaceTokenFromDB = null; // Variable to store the fetched token
-
 // --- Keytar Constants ---
 // KEYTAR_SERVICE_NAME: Used by keytar to identify the application or service storing the credential.
 // It's a namespace for your credentials. For Google OAuth tokens.
@@ -22,10 +20,7 @@ const KEYTAR_SERVICE_NAME = 'WhisprMailGoogleOAuth';
 // KEYTAR_ACCOUNT_NAME: The specific account name under the service. Here, it's a generic name
 // as we're storing the token bundle for the primary user of the app for this service.
 const KEYTAR_ACCOUNT_NAME = 'userTokens';
-// KEYTAR_HUGGINGFACE_SERVICE_NAME: Separate service name for Hugging Face token for clarity.
-const KEYTAR_HUGGINGFACE_SERVICE_NAME = 'WhisprMailHuggingFace';
-// KEYTAR_HUGGINGFACE_ACCOUNT_NAME: Account name for the Hugging Face API token.
-const KEYTAR_HUGGINGFACE_ACCOUNT_NAME = 'apiToken';
+// Hugging Face token constants removed
 
 // --- Keytar Helper Functions ---
 /**
@@ -159,7 +154,7 @@ let settings = {
   enableReadTime: true, 
   speakSenderName: true, // <-- ADD THIS LINE
   speakSubject: true,    // <-- ADD THIS LINE
-  huggingfaceToken: process.env.HUGGINGFACE_TOKEN, // Retain from .env
+  // huggingfaceToken: process.env.HUGGINGFACE_TOKEN, // Removed from settings
   showUrgency: true,
   appearanceTheme: 'dark' // Added new theme setting
 };
@@ -171,12 +166,7 @@ function executePythonScript(scriptName, scriptArgs = [], inputText = null, time
 
     // --- Prepare environment for Python script ---
     const pythonEnv = { ...process.env }; // Clone current environment
-    if (huggingFaceTokenFromDB) {
-      pythonEnv.HUGGING_FACE_HUB_TOKEN = huggingFaceTokenFromDB;
-      console.log(`Main.js: Setting HUGGING_FACE_HUB_TOKEN for ${scriptName}.`);
-    } else {
-      console.log(`Main.js: HUGGING_FACE_HUB_TOKEN not available for ${scriptName}.`);
-    }
+    // Hugging Face token logic removed from here
     // --- End of environment preparation ---
 
     // Pass the modified environment to spawn
@@ -259,26 +249,9 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  // --- Fetch Hugging Face Token ---
-  // Attempt to retrieve the Hugging Face API token from the system keychain.
-  // This token is necessary for Python scripts that interact with Hugging Face services.
-  try {
-    console.log("Main.js: Attempting to fetch HUGGING_FACE_TOKEN from keytar on app ready.");
-    // keytar.getPassword retrieves the stored password (API token in this case) for the given service and account.
-    const hfTokenString = await keytar.getPassword(KEYTAR_HUGGINGFACE_SERVICE_NAME, KEYTAR_HUGGINGFACE_ACCOUNT_NAME);
-    if (hfTokenString) {
-      huggingFaceTokenFromDB = hfTokenString; // The token is stored as a direct string.
-      console.log("Main.js: HUGGING_FACE_TOKEN fetched successfully from keytar.");
-    } else {
-      console.warn("Main.js: HUGGING_FACE_TOKEN could not be fetched from keytar. Python scripts might not have authentication.");
-      // Consider prompting the user to enter it if not found, or guide them to set it up.
-      // For now, it will just be null if not found.
-    }
-  } catch (error) {
-    console.error("Main.js: Error fetching HUGGING_FACE_TOKEN from keytar on app ready:", error);
-    // If keytar is not available on the system, this might fail.
-  }
-  // --- End of Token Fetching ---
+  // Hugging Face token fetching logic removed.
+  // Users needing Python scripts with Hugging Face will need to set HUGGING_FACE_HUB_TOKEN
+  // as an environment variable manually or through other means outside this app's direct management.
 
   loadAppSettings(); // Load settings first
   await saveAppSettings(); // Ensure file exists with current/default settings
