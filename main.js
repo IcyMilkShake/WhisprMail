@@ -385,10 +385,9 @@ async function initializeGmail() {
   // IMPORTANT: User must replace 'YOUR_ACTUAL_CLIENT_ID' with their actual Google Client ID.
   // This is a public identifier for the application, used by Google to identify this app.
   // For installed applications (like Electron apps) using PKCE, the client ID is not a secret.
-  const GOOGLE_CLIENT_ID = 'YOUR_ACTUAL_CLIENT_ID';
+  const GOOGLE_CLIENT_ID = '304008124129-6j79vk15selo581v1m870dnesma2vk9e.apps.googleusercontent.com';
 
-  if (GOOGLE_CLIENT_ID === 'YOUR_ACTUAL_CLIENT_ID') {
-    console.error('CRITICAL: Placeholder GOOGLE_CLIENT_ID is being used. Please replace it with your actual client ID in main.js.');
+  if (GOOGLE_CLIENT_ID === '304008124129-6j79vk15selo581v1m870dnesma2vk9e.apps.googleusercontent.com') {
     // Optionally, throw an error to prevent the application from running with a placeholder
     // throw new Error('CRITICAL: Placeholder GOOGLE_CLIENT_ID needs to be replaced.');
   }
