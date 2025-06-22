@@ -534,6 +534,7 @@ async function initializeGmail() {
 
   gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
   console.log("Gmail API client initialized successfully.");
+  console.log
 }
 
 // --- EMAIL PROCESSING & ANALYSIS ---
@@ -549,9 +550,15 @@ async function getNewEmails() {
       maxResults: 50
     });
     return res.data.messages || [];
-  } catch (error) {
-    console.error("Error fetching new emails:", error.message);
-    return [];
+  } catch (err) {
+    if (err.response) {
+      console.error('Gmail API error (response):', err.response.data);
+    } else if (err.errors) {
+      console.error('Gmail API error (errors):', err.errors);
+    } else {
+      console.error('Gmail API unknown error:', err);
+    }
+    return []
   }
 }
 
