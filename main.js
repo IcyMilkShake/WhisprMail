@@ -92,6 +92,7 @@ let mainWindow;
 let gmail;
 let oAuth2Client;
 let currentCodeVerifier; // Added for PKCE
+let currentAuthState; // Added for state validation during OAuth flow
 let isMonitoring = false;
 let knownEmailIds = new Set();
 let monitoringStartTime = null;
@@ -103,11 +104,8 @@ let openEmailViewWindows = new Set();
 // For installed applications (like Electron apps) using PKCE, the client ID is not a secret.
 const GOOGLE_CLIENT_ID = '304008124129-6j79vk15selo581v1m870dnesma2vk9e.apps.googleusercontent.com';
 
-// IMPORTANT: User must set the GOOGLE_CLIENT_SECRET environment variable for the application to work.
-// This is a sensitive value and should not be hardcoded. It is used for server-side operations
-// or specific OAuth flows that require a client secret. For Electron apps primarily using PKCE,
-// this might be used for other Google services or specific backend interactions.
-const GOOGLE_CLIENT_SECRET = PLACEHOLDER;
+// GOOGLE_CLIENT_SECRET is no longer used in this file.
+// It will be used by the Vercel serverless function.
 
 // Theme Palettes (mirrored from renderer.js)
 const themePalettes = {
@@ -270,7 +268,6 @@ app.whenReady().then(async () => {
   createWindow();
   loadNotifiableAuthors(); // This can come after loading app settings
   try {
-    await initializeGmail();
     await startMonitoring();
     console.log('Email monitoring started!');
   } catch (error) {
@@ -359,49 +356,47 @@ function generateCodeChallenge(codeVerifier) {
 }
 
 /**
- * Manually exchanges an authorization code for OAuth tokens using a direct HTTPS request.
- * This is part of the PKCE flow, done after the user authorizes the app and a code is received.
+ * Exchanges an authorization code for OAuth tokens by calling the Vercel backend.
  * @param {string} authCode - The authorization code received from the OAuth server.
  * @param {string} verifier - The original PKCE code_verifier.
  * @returns {Promise<object>} A promise that resolves with the token object (access_token, refresh_token, etc.).
  */
-async function exchangeCodeForTokensManually(authCode, verifier) {
-  const tokenEndpoint = 'https://oauth2.googleapis.com/token';
-  // This redirect URI MUST match exactly what was used in the initial auth URL,
-  // and what is configured in your Google Cloud Console for this client ID.
-  const redirectUri = 'http://localhost:3000';
+async function exchangeCodeViaBackend(authCode, verifier) {
+  // TODO: Replace 'https://your-vercel-app-url.vercel.app' with the actual Vercel deployment URL from the user.
+  // This URL will be provided once the backend function is deployed.
+  const backendTokenEndpoint = 'https://whisprmailapi.vercel.app/api/auth/exchange-google-auth';
+  const redirectUri = 'http://localhost:3000'; 
 
-  const params = new URLSearchParams();
-  params.append('client_id', GOOGLE_CLIENT_ID); // GOOGLE_CLIENT_ID is a module-level constant
-  params.append('client_secret', GOOGLE_CLIENT_SECRET); // GOOGLE_CLIENT_SECRET is a module-level constant
-  params.append('code', authCode);
-  params.append('code_verifier', verifier); // PKCE parameter
-  params.append('redirect_uri', redirectUri);
-  params.append('grant_type', 'authorization_code'); // Specifies the grant type
-
+  console.log('Exchanging code for tokens via backend:', backendTokenEndpoint);
   try {
-    console.log('Exchanging code for tokens manually with params:', params.toString());
-    // `fetch` is globally available in recent Node.js versions (>=18) and Electron main process.
-    const response = await fetch(tokenEndpoint, {
+    const response = await fetch(backendTokenEndpoint, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Type': 'application/json',
       },
-      body: params.toString(),
+      body: JSON.stringify({
+        authorizationCode: authCode,
+        codeVerifier: verifier,
+        redirectUri: redirectUri, // Send the redirectUri used by the client
+      }),
     });
 
     const responseBody = await response.json();
 
     if (!response.ok) {
-      console.error('Token exchange failed! Response Status:', response.status, 'Body:', responseBody);
-      throw new Error(`Token exchange failed with status: ${response.status} - ${responseBody.error_description || responseBody.error || 'Unknown error'}`);
+      console.error('Backend token exchange failed! Response Status:', response.status, 'Body:', responseBody);
+      throw new Error(`Backend token exchange failed: ${responseBody.error || 'Unknown backend error'}`);
     }
 
-    console.log('Tokens obtained successfully via manual exchange.');
-    return responseBody; // Contains access_token, refresh_token, id_token, scope, token_type, expiry_date
+    console.log('Tokens obtained successfully via backend exchange.');
+    return responseBody; 
   } catch (error) {
-    console.error('Error during manual token exchange:', error);
-    throw error; // Re-throw to be caught by initializeGmail or other callers
+    console.error('Error during backend token exchange:', error);
+    // Add a more specific error message if the fetch itself fails (e.g. network error)
+    if (error.message.includes('fetch failed')) {
+        throw new Error(`Network error or Vercel function not reachable at ${backendTokenEndpoint}. Details: ${error.message}`);
+    }
+    throw error; 
   }
 }
 
@@ -414,32 +409,44 @@ function createAuthServer() {
       if (parsedUrl.pathname === '/') {
         const code = parsedUrl.searchParams.get('code');
         const error = parsedUrl.searchParams.get('error');
+        const returnedState = parsedUrl.searchParams.get('state'); // Capture returned state
 
         if (error) {
           res.writeHead(400, { 'Content-Type': 'text/html' });
           res.end('<h1>OAuth Error</h1><p>An error occurred during authentication. You can close this window.</p>');
           server.close(() => console.log('Auth server closed due to OAuth error.'));
           reject(new Error(`OAuth authentication error: ${error}`));
+          currentAuthState = null; // Clear state
           return;
         }
 
+        // Validate state
+        if (!currentAuthState || returnedState !== currentAuthState) {
+          res.writeHead(400, { 'Content-Type': 'text/html' });
+          res.end('<h1>OAuth Error</h1><p>Invalid state parameter. CSRF attack suspected or state mismatch. You can close this window.</p>');
+          server.close(() => console.log('Auth server closed due to state mismatch.'));
+          reject(new Error('OAuth state parameter mismatch.'));
+          currentAuthState = null; // Clear state
+          return;
+        }
+        currentAuthState = null; // Clear state after successful validation
+        
         if (code) {
           res.writeHead(200, { 'Content-Type': 'text/html' });
           res.end('<h1>Authentication Successful!</h1><p>You can close this window. The application will now proceed.</p>');
           server.close(() => console.log('Auth server closed after successful code retrieval.'));
-          resolve(code);
+          resolve(code); // Only resolve with code, state has been validated
           return;
         }
 
         // If neither code nor error is present, it's an unexpected request.
         res.writeHead(400, { 'Content-Type': 'text/html' });
         res.end('<h1>Invalid Request</h1><p>This page was accessed incorrectly. Please close this window.</p>');
-        // server.close(); // Optionally close for any other request too
-        // reject(new Error('Invalid request to auth server'));
       }
     });
 
     server.on('error', (err) => {
+      currentAuthState = null; // Clear state on server error too
       if (err.code === 'EADDRINUSE') {
         console.error('Error: Port 3000 is already in use. Cannot start authentication server.');
         reject(new Error('Port 3000 is already in use. Please ensure no other application is using it.'));
@@ -456,73 +463,73 @@ function createAuthServer() {
 }
 
 async function initializeGmail() {
-  // SCOPES is now a global constant
-  // const TOKEN_PATH = path.join(__dirname, 'token.json'); // Removed
-
-  // GOOGLE_CLIENT_ID is now a module-level constant.
-  if (GOOGLE_CLIENT_ID === '304008124129-6j79vk15selo581v1m870dnesma2vk9e.apps.googleusercontent.com') {
-    // Optionally, throw an error to prevent the application from running with a placeholder
-    // throw new Error('CRITICAL: Placeholder GOOGLE_CLIENT_ID needs to be replaced.');
-  }
-
-  // Client secret is now used, ensure GOOGLE_CLIENT_SECRET is set in .env
-  oAuth2Client = new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, 'http://localhost:3000');
+  // GOOGLE_CLIENT_ID is a module-level constant.
+  // Client Secret is removed from OAuth2 constructor as it's not used for token exchange here.
+  oAuth2Client = new google.auth.OAuth2(
+    GOOGLE_CLIENT_ID,
+    undefined, // clientSecret - not needed here anymore for token calls
+    'http://localhost:3000'
+  );
   console.log("Initializing Gmail: OAuth2 client created.");
 
-  let token = await getTokensFromKeytar(); // Use keytar to get tokens
+  let token = await getTokensFromKeytar(); 
 
   if (token) {
     oAuth2Client.setCredentials(token);
     try {
-      await oAuth2Client.getAccessToken(); // Check if token is valid/expired
+      await oAuth2Client.getAccessToken(); 
       console.log("Successfully used token from keytar.");
     } catch (error) {
       console.log('Token from keytar expired or invalid, deleting and re-authenticating...');
-      await deleteTokensFromKeytar(); // Delete stale tokens from keytar
-      token = null; // Signal to get a new token
+      await deleteTokensFromKeytar(); 
+      token = null; 
     }
   }
-  // If token is null (either not found, or was found but expired)
+
   if (!token) {
     console.log('No valid token found in keytar, starting new auth flow with PKCE...');
-    // PKCE Step 1: Generate a code verifier and a code challenge.
-    // The verifier is a secret, and the challenge is sent to the authorization server.
-    currentCodeVerifier = generateCodeVerifier(); // Store the verifier locally.
-    const codeChallenge = generateCodeChallenge(currentCodeVerifier); // Create the challenge from the verifier.
+    
+    currentCodeVerifier = generateCodeVerifier(); 
+    const codeChallenge = generateCodeChallenge(currentCodeVerifier); 
+    currentAuthState = crypto.randomBytes(32).toString('hex'); // Generate and store state for validation
 
-    // PKCE Step 2: Manually construct the authorization URL.
-    console.log('Manually constructing authorization URL...');
+    console.log('Constructing authorization URL...');
     const authParams = new URLSearchParams({
-      client_id: GOOGLE_CLIENT_ID, // Module-level constant
-      redirect_uri: 'http://localhost:3000', // Must match oAuth2Client and Google Cloud Console
+      client_id: GOOGLE_CLIENT_ID, 
+      redirect_uri: 'http://localhost:3000', 
       response_type: 'code',
-      scope: SCOPES.join(' '), // Scopes array to space-separated string
+      scope: SCOPES.join(' '), 
       code_challenge: codeChallenge,
       code_challenge_method: 'S256',
-      access_type: 'offline', // Request a refresh token
-      prompt: 'consent'       // Ensure the consent screen is shown
+      state: currentAuthState, // Add state to auth URL
+      access_type: 'offline', 
+      prompt: 'consent'       
     });
     const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${authParams.toString()}`;
-    console.log('Manually constructed authUrl:', authUrl);
+    console.log('Constructed authUrl:', authUrl);
 
-    const open = (await import('open')).default; // Dynamic import for 'open' module.
-    await open(authUrl); // Open the authorization URL in the user's browser.
-    const code = await createAuthServer(); // Wait for the authorization code from the local server.
+    const open = (await import('open')).default; 
+    await open(authUrl); 
+    
+    let code;
+    try {
+      // createAuthServer now also validates state internally and clears currentAuthState
+      code = await createAuthServer(); 
+    } catch (error) {
+      console.error("Authentication failed during local server callback:", error.message);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('auth-error', `Authentication callback failed: ${error.message}`);
+      }
+      throw error; // Propagate error to stop further execution
+    }
 
-    // PKCE Step 3: Exchange the authorization code for tokens MANUALLY.
-    // oAuth2Client.codeVerifier = currentCodeVerifier; // This was for googleapis built-in exchange.
-    // const { tokens: newTokens } = await oAuth2Client.getToken(code); // REPLACED by manual exchange.
+    console.log('Attempting token exchange with backend using server-provided code...');
+    const newTokens = await exchangeCodeViaBackend(code, currentCodeVerifier);
 
-    console.log('Attempting manual token exchange with server-provided code...');
-    const newTokens = await exchangeCodeForTokensManually(code, currentCodeVerifier);
-
-    // After manually fetching tokens, they must be set on the oAuth2Client instance
-    // so that subsequent calls using the `googleapis` library are authenticated.
     oAuth2Client.setCredentials(newTokens);
-
-    await saveTokensWithKeytar(newTokens); // Save the newly obtained tokens securely.
-    console.log('New tokens obtained via manual exchange and saved to keytar.');
-    token = newTokens; // Update the in-memory token variable for the current session.
+    await saveTokensWithKeytar(newTokens); 
+    console.log('New tokens obtained via backend exchange and saved to keytar.');
+    token = newTokens; 
   }
 
   gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
