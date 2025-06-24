@@ -513,32 +513,170 @@ function createAuthServer() {
   });
 }
 
+// NEW function to handle refresh via backend
+async function refreshAccessTokenViaBackend() {
+  if (!oAuth2Client || !oAuth2Client.credentials || !oAuth2Client.credentials.refresh_token) {
+    console.log('No refresh token available in oAuth2Client. Cannot refresh via backend.');
+    throw new Error('No refresh token available for backend refresh.');
+  }
+
+  const refreshToken = oAuth2Client.credentials.refresh_token;
+  console.log('Attempting to refresh access token via backend...');
+
+  try {
+    const response = await fetch('https://whisprmailapi.vercel.app/api/auth/refresh-google-token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ refreshToken }), // Sending refreshToken in the body
+    });
+
+    const newTokens = await response.json();
+
+    if (!response.ok) {
+      console.error('Backend token refresh failed! Response Status:', response.status, 'Body:', newTokens);
+      // Specific check for invalid_grant from Google, which means refresh token is bad
+      if (newTokens.details && (newTokens.details.error === 'invalid_grant' || newTokens.details.error === 'unauthorized_client')) {
+        console.log('Refresh token is invalid or revoked according to backend. Full re-authentication needed.');
+        throw new Error(`Refresh token invalid: ${newTokens.details.error_description || newTokens.details.error}`);
+      }
+      throw new Error(`Backend token refresh failed: ${newTokens.error || 'Unknown backend error'}`);
+    }
+
+    console.log('Access token refreshed successfully via backend.');
+    
+    // Google's token refresh response includes new access_token, expires_in, etc.
+    // It might not include a new refresh_token.
+    // We need to merge with existing credentials if refresh_token is not in newTokens.
+    const updatedCredentials = {
+      ...oAuth2Client.credentials, // keep existing refresh_token if not in newTokens
+      access_token: newTokens.access_token,
+      expiry_date: newTokens.expires_in ? Date.now() + (newTokens.expires_in * 1000) : null,
+      // If Google sends back a new refresh_token, use it. Otherwise, keep the old one.
+      refresh_token: newTokens.refresh_token || refreshToken 
+    };
+    
+    if (newTokens.id_token) { // if id_token is part of the refresh response
+        updatedCredentials.id_token = newTokens.id_token;
+    }
+    if (newTokens.scope) { // if scope is part of the refresh response
+        updatedCredentials.scope = newTokens.scope;
+    }
+    if (newTokens.token_type) {
+        updatedCredentials.token_type = newTokens.token_type;
+    }
+
+    oAuth2Client.setCredentials(updatedCredentials);
+    await saveTokensWithKeytar(updatedCredentials); // Save the updated tokens (important!)
+    console.log('Updated tokens saved to keytar after backend refresh.');
+
+    return updatedCredentials.access_token; // Return the new access token
+  } catch (error) {
+    console.error('Error during backend token refresh process:', error);
+    // Re-throw specific errors to be caught by initializeGmail for re-auth flow
+    if (error.message.includes('Refresh token invalid') || error.message.includes('No refresh token available')) {
+        throw error;
+    }
+    // Generic error for other failures
+    throw new Error(`Failed to refresh token via backend: ${error.message}`);
+  }
+}
+
+
 async function initializeGmail() {
-  // GOOGLE_CLIENT_ID is a module-level constant.
-  // Client Secret is removed from OAuth2 constructor as it's not used for token exchange here.
   oAuth2Client = new google.auth.OAuth2(
     GOOGLE_CLIENT_ID,
-    undefined, // clientSecret - not needed here anymore for token calls
-    'http://localhost:3000'
+    undefined, // CORRECT: Client secret is undefined on the client
+    'http://localhost:3000' // Redirect URI
   );
   console.log("Initializing Gmail: OAuth2 client created.");
 
-  let token = await getTokensFromKeytar(); 
+  // Listen for 'tokens' event on oAuth2Client
+  // This is a safety net: if the library internally refreshes tokens successfully,
+  // (which we try to avoid for refresh, but it might happen for other reasons or future library changes)
+  // we ensure those tokens are saved.
+  oAuth2Client.on('tokens', (tokens) => {
+    console.log('oAuth2Client emitted "tokens" event:', tokens);
+    const currentCreds = oAuth2Client.credentials || {};
+    const updatedTokens = { ...currentCreds };
 
-  if (token) {
+    if (tokens.access_token) {
+      updatedTokens.access_token = tokens.access_token;
+    }
+    if (tokens.refresh_token) {
+      // This is important: if Google issues a new refresh token, we MUST use it.
+      updatedTokens.refresh_token = tokens.refresh_token;
+      console.log('New refresh_token received from "tokens" event.');
+    }
+    if (tokens.expiry_date) {
+      updatedTokens.expiry_date = tokens.expiry_date;
+    } else if (tokens.expires_in) {
+      updatedTokens.expiry_date = Date.now() + (tokens.expires_in * 1000);
+    }
+    // Preserve other potential fields like id_token, scope, token_type if they are part of `tokens`
+    if (tokens.id_token) updatedTokens.id_token = tokens.id_token;
+    if (tokens.scope) updatedTokens.scope = tokens.scope;
+    if (tokens.token_type) updatedTokens.token_type = tokens.token_type;
+
+
+    // Update the client with potentially merged tokens
+    oAuth2Client.setCredentials(updatedTokens);
+    console.log('Saving tokens from "tokens" event to keytar.');
+    saveTokensWithKeytar(updatedTokens);
+  });
+
+  let token = await getTokensFromKeytar();
+
+  if (token && token.access_token) { // Ensure token object and access_token exist
     oAuth2Client.setCredentials(token);
     try {
-      await oAuth2Client.getAccessToken(); 
-      console.log("Successfully used token from keytar.");
+      const expiryDate = token.expiry_date;
+      // Refresh if expiry_date is missing, or if less than 5 minutes remaining (300,000 ms)
+      const needsRefresh = !expiryDate || expiryDate < (Date.now() + 5 * 60 * 1000);
+
+      if (needsRefresh) {
+        console.log('Token expired or nearing expiry, attempting refresh via backend.');
+        if (!token.refresh_token) {
+            console.log('No refresh token found in stored tokens. Proceeding to full auth flow.');
+            throw new Error('No refresh token for backend refresh.'); // This will lead to full re-auth
+        }
+        // Ensure the client has the refresh token before attempting refresh
+        oAuth2Client.setCredentials({ refresh_token: token.refresh_token }); 
+        await refreshAccessTokenViaBackend(); // Use our backend refresh
+        token = oAuth2Client.credentials; // Update token with new credentials from client
+        console.log("Successfully refreshed token using backend.");
+      } else {
+        // If token is not expired, we can assume it's valid for now.
+        // A lightweight check or just proceeding might be fine.
+        // oAuth2Client.getAccessToken() might still attempt its own refresh if it disagrees.
+        // For now, we'll trust our expiry check.
+        console.log("Token from keytar is still valid.");
+      }
     } catch (error) {
-      console.log('Token from keytar expired or invalid, deleting and re-authenticating...');
-      await deleteTokensFromKeytar(); 
-      token = null; 
+      console.log('Error processing existing token (could be during proactive refresh):', error.message);
+      // If refresh failed because refresh token is invalid, or no refresh token was available for our backend call
+      if (error.message.includes('Refresh token invalid') || error.message.includes('No refresh token available')) {
+        console.log('Token from keytar invalid (refresh failed or no refresh token), deleting and re-authenticating...');
+      } else {
+        console.log('Other error with token from keytar, deleting and re-authenticating...');
+      }
+      await deleteTokensFromKeytar();
+      token = null; // Signal that full authentication is needed
+      oAuth2Client.setCredentials(null); // Clear any potentially bad credentials from the client
     }
+  } else {
+      // No token in keytar or token object is incomplete
+      if (token) { // Token object existed but was incomplete (e.g. no access_token)
+          console.log('Incomplete token found in keytar, deleting and re-authenticating...');
+          await deleteTokensFromKeytar();
+      }
+      token = null; 
   }
 
-  if (!token) {
-    console.log('No valid token found in keytar, starting new auth flow with PKCE...');
+
+  if (!token || !token.access_token) { // Check again, as token might have been nulled above or still be invalid
+    console.log('No valid token available, starting new auth flow with PKCE...');
     
     currentCodeVerifier = generateCodeVerifier(); 
     const codeChallenge = generateCodeChallenge(currentCodeVerifier); 
@@ -565,7 +703,7 @@ async function initializeGmail() {
     let code;
     try {
       // createAuthServer now also validates state internally and clears currentAuthState
-      code = await createAuthServer(); 
+      code = await createAuthServer(currentAuthState);  // Pass state to createAuthServer
     } catch (error) {
       console.error("Authentication failed during local server callback:", error.message);
       if (mainWindow && !mainWindow.isDestroyed()) {
@@ -577,44 +715,96 @@ async function initializeGmail() {
     console.log('Attempting token exchange with backend using server-provided code...');
     const newTokens = await exchangeCodeViaBackend(code, currentCodeVerifier);
 
-    oAuth2Client.setCredentials(newTokens);
+    oAuth2Client.setCredentials(newTokens); // This will also trigger the 'tokens' event
+    // saveTokensWithKeytar is now handled by the 'tokens' event listener,
+    // but calling it here explicitly ensures it's saved before gmail client is created,
+    // especially if the event is asynchronous.
     await saveTokensWithKeytar(newTokens); 
     console.log('New tokens obtained via backend exchange and saved to keytar.');
-    token = newTokens; 
+    // token = newTokens; // oAuth2Client.credentials holds the authoritative tokens
   }
 
   gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
   console.log("Gmail API client initialized successfully.");
-  console.log
+  // console.log without arguments removed as it caused an error.
+}
+
+// --- API CALL WRAPPER ---
+async function makeGmailApiCall(apiCallFunction) {
+  if (!oAuth2Client || !oAuth2Client.credentials || !oAuth2Client.credentials.access_token) {
+    console.log('Gmail client not ready or no access token, attempting to initialize/re-initialize.');
+    await initializeGmail(); // Attempt to re-initialize which handles auth and refresh
+    if (!oAuth2Client || !oAuth2Client.credentials || !oAuth2Client.credentials.access_token) {
+      throw new Error("Gmail client initialization failed or no valid tokens after re-init.");
+    }
+  }
+  
+  const expiryDate = oAuth2Client.credentials.expiry_date;
+  // Refresh if expiry_date is missing, or if less than 1 minute remaining (60,000 ms)
+  const needsRefresh = !expiryDate || expiryDate < (Date.now() + 1 * 60 * 1000);
+
+  if (needsRefresh) {
+    console.log('Token possibly expired or nearing expiry before API call, attempting refresh via backend.');
+    try {
+      await refreshAccessTokenViaBackend();
+      console.log('Token refreshed successfully before API call.');
+    } catch (refreshError) {
+      console.error('Failed to refresh token before API call:', refreshError.message);
+      // If refresh failed critically (e.g. invalid refresh token), re-initialize to force full auth flow.
+      if (refreshError.message.includes('Refresh token invalid') || refreshError.message.includes('No refresh token available')) {
+        console.log('Critical refresh error, triggering full re-authentication.');
+        await initializeGmail(); // This will attempt the full auth flow
+        // After re-init, check again if client is ready
+        if (!oAuth2Client || !oAuth2Client.credentials || !oAuth2Client.credentials.access_token) {
+          throw new Error('Re-authentication failed, Gmail client not available after critical refresh error.');
+        }
+      } else {
+        // For other refresh errors, we might just throw and let higher level decide
+        throw new Error(`Token refresh failed, API call aborted: ${refreshError.message}`);
+      }
+    }
+  }
+  // At this point, oAuth2Client should have valid credentials.
+  // The `gmail` object is already configured with this oAuth2Client.
+  return await apiCallFunction();
 }
 
 // --- EMAIL PROCESSING & ANALYSIS ---
 async function getNewEmails() {
-  if (gmail) {
-    try {
-      const query = monitoringStartTime
-        ? `is:unread after:${Math.floor(monitoringStartTime / 1000)}`
-        : 'is:unread';
-
-      const res = await gmail.users.messages.list({
-        userId: 'me',
-        q: query,
-        maxResults: 50
-      });
-      return res.data.messages || [];
-    } catch (err) {
-      if (err.response) {
-        console.error('Gmail API error (response):', err.response.data);
-      } else if (err.errors) {
-        console.error('Gmail API error (errors):', err.errors);
-      } else {
-        console.error('Gmail API unknown error:', err);
-      }
-      return []
+  if (!gmail) {
+    console.log("Gmail client not initialized in getNewEmails. Attempting to initialize.");
+    await initializeGmail(); // Ensure client is initialized
+    if (!gmail) {
+      console.error("Failed to initialize Gmail client in getNewEmails.");
+      return [];
     }
-  }else{
-    return []
-  } 
+  }
+  
+  try {
+    const query = monitoringStartTime
+      ? `is:unread after:${Math.floor(monitoringStartTime / 1000)}`
+      : 'is:unread';
+
+    const res = await makeGmailApiCall(() => gmail.users.messages.list({
+      userId: 'me',
+      q: query,
+      maxResults: 50
+    }));
+    return res.data.messages || [];
+  } catch (err) {
+    // Error logging is now more centralized in makeGmailApiCall or initializeGmail for auth issues
+    // Here, log specific API call errors if they are not auth related.
+    if (err.message.includes('Token refresh failed') || err.message.includes('Gmail client initialization failed')) {
+        console.error(`getNewEmails aborted due to auth/refresh issue: ${err.message}`);
+    } else if (err.response) { // Standard Google API error structure
+      console.error('getNewEmails - Gmail API error (response):', err.response.data);
+    } else if (err.errors) { // Another Google API error structure
+      console.error('getNewEmails - Gmail API error (errors):', err.errors);
+    } else {
+      console.error('getNewEmails - Gmail API unknown error:', err);
+    }
+    return [];
+  }
 }
 
 function extractSenderName(fromHeader) {
