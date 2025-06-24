@@ -1,15 +1,64 @@
 {
   "name": "whisprmail",
   "version": "1.0.0",
+  "description": "WhisprMail - desktop email monitoring assistant",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "build": "electron-builder",
+    "dist": "electron-builder --dir", 
+    "release": "electron-builder --publish=never" 
   },
+  "build": {
+      "appId": "com.whisprmail.desktop",
+      "productName": "WhisprMail",
+      "asar": true,
+      "extraResources": [
+      {
+        "from": "python_executor",
+        "to": "python_executor",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "summarizer.js",
+        "to": "summarizer.js",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "tone_analyzer.js",
+        "to": "tone_analyzer.js",
+        "filter": ["**/*"]
+      }
+      ],
+      "files": [
+        "**/*",
+        "!node_modules/*",
+        "!.gitignore",
+        "!credentials.json",
+        "!get-pip.py",
+        "!token.json"
+      ],
+      "directories": {
+        "output": "dist"
+      },
+      "mac": {
+        "target": "dmg"
+      },
+      "win": {
+        "target": "nsis"
+      },
+      "linux": {
+        "target": "AppImage"
+      }
+    },
+
   "devDependencies": {
-    "electron": "^36.4.0"
+    "electron": "^36.5.0",
+    "electron-builder": "^26.0.12"
   },
   "dependencies": {
     "@google-cloud/text-to-speech": "^6.1.0",
+    "builder": "^5.0.0",
     "dotenv": "^16.5.0",
     "googleapis": "^149.0.0",
     "keytar": "^7.9.0",
@@ -18,10 +67,6 @@
     "readline": "^1.3.0",
     "say": "^0.16.0"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "��#\u0000 \u0000W\u0000h\u0000i\u0000s\u0000p\u0000r\u0000M\u0000a\u0000i\u0000l\u0000\r\u0000 \u0000",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/IcyMilkShake/WhisprMail.git"
@@ -29,5 +74,6 @@
   "bugs": {
     "url": "https://github.com/IcyMilkShake/WhisprMail/issues"
   },
-  "homepage": "https://github.com/IcyMilkShake/WhisprMail#readme"
+  "homepage": "https://github.com/IcyMilkShake/WhisprMail#readme",
+  "license": "ISC"
 }

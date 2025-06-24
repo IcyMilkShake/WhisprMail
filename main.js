@@ -12,7 +12,6 @@ const puppeteer = require('puppeteer');
 require('dotenv').config();
 // const { MongoClient } = require('mongodb'); // MongoDB removed
 const os = require('os'); // Or 'process' for environment variables, depending on how it's used later
-
 // --- Keytar Constants ---
 // KEYTAR_SERVICE_NAME: Used by keytar to identify the application or service storing the credential.
 // It's a namespace for your credentials. For Google OAuth tokens.
@@ -81,7 +80,7 @@ const SETTINGS_PATH = path.join(app.getPath('userData'), 'app_settings.json');
 let notifiableAuthors = []; // To store email addresses
 
 // --- GLOBAL VARIABLES & CONSTANTS ---
-const PYTHON_EXECUTABLE_PATH = path.join(__dirname, 'python_executor', 'python.exe'); // Added from previous task
+const PYTHON_EXECUTABLE_PATH = path.join(process.resourcesPath, 'python_executor', 'python.exe'); // Added from previous task
 const SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.modify',
@@ -171,7 +170,7 @@ let settings = {
 // --- PYTHON SCRIPT EXECUTION HELPER ---
 function executePythonScript(scriptName, scriptArgs = [], inputText = null, timeout = 100000) {
   return new Promise((resolve, reject) => {
-    const fullScriptPath = path.join(__dirname, scriptName);
+    const fullScriptPath = path.join(process.resourcesPath, scriptName);
 
     // --- Prepare environment for Python script ---
     const pythonEnv = { ...process.env }; // Clone current environment
@@ -539,27 +538,31 @@ async function initializeGmail() {
 
 // --- EMAIL PROCESSING & ANALYSIS ---
 async function getNewEmails() {
-  try {
-    const query = monitoringStartTime
-      ? `is:unread after:${Math.floor(monitoringStartTime / 1000)}`
-      : 'is:unread';
+  if (gmail) {
+    try {
+      const query = monitoringStartTime
+        ? `is:unread after:${Math.floor(monitoringStartTime / 1000)}`
+        : 'is:unread';
 
-    const res = await gmail.users.messages.list({
-      userId: 'me',
-      q: query,
-      maxResults: 50
-    });
-    return res.data.messages || [];
-  } catch (err) {
-    if (err.response) {
-      console.error('Gmail API error (response):', err.response.data);
-    } else if (err.errors) {
-      console.error('Gmail API error (errors):', err.errors);
-    } else {
-      console.error('Gmail API unknown error:', err);
+      const res = await gmail.users.messages.list({
+        userId: 'me',
+        q: query,
+        maxResults: 50
+      });
+      return res.data.messages || [];
+    } catch (err) {
+      if (err.response) {
+        console.error('Gmail API error (response):', err.response.data);
+      } else if (err.errors) {
+        console.error('Gmail API error (errors):', err.errors);
+      } else {
+        console.error('Gmail API unknown error:', err);
+      }
+      return []
     }
+  }else{
     return []
-  }
+  } 
 }
 
 function extractSenderName(fromHeader) {
@@ -776,85 +779,23 @@ async function detectEmotionalTone(text) {
     });
 }
 
-async function captureEmailWithPuppeteer(messageId) {
-  let browser;
-  try {
-    browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox']});
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1200, height: 800 });
-
-    const emailRes = await gmail.users.messages.get({ userId: 'me', id: messageId, format: 'full' });
-    let htmlBody = '';
-    if (emailRes.data.payload.mimeType === 'text/html' && emailRes.data.payload.body.data) {
-        htmlBody = Buffer.from(emailRes.data.payload.body.data, 'base64').toString();
-    } else {
-        const htmlPart = emailRes.data.payload.parts?.find(part => part.mimeType === 'text/html');
-        if (htmlPart && htmlPart.body.data) {
-            htmlBody = Buffer.from(htmlPart.body.data, 'base64').toString();
-        }
-    }
-    if (!htmlBody) return null;
-
-    const content = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>${htmlBody}</body></html>`;
-    await page.setContent(content, { waitUntil: 'networkidle0' });
-    const screenshot = await page.screenshot({ type: 'png', fullPage: true });
-    return screenshot;
-  } catch (error) {
-    console.error('Puppeteer capture failed:', error); return null;
-  } finally {
-    if (browser) await browser.close();
-  }
-}
-
-function runPythonOCR(imageBase64) {
-  return executePythonScript('ocr_processor.py', ['ocr', imageBase64])
-    .then(result => {
-      // executePythonScript will resolve with parsed JSON if successful (exit code 0 and valid JSON)
-      // or reject if any step fails (non-zero exit, JSON parse error, spawn error).
-      // Python scripts are now expected to return {success: true/false, ...}
-      if (result && result.success) {
-        console.log("OCR processing successful via Python script.");
-        return result; // Contains { success: true, text: "...", word_count: N }
-      } else {
-        // This case handles when the script runs (exit 0, valid JSON) but reports an internal error.
-        console.error(`OCR script returned success:false or error: ${result?.error}`);
-        throw new Error(result?.error || 'OCR processing failed in Python script.');
-      }
-    })
-    .catch(error => {
-      // This catches rejections from executePythonScript (spawn errors, timeouts, non-zero exits, JSON parse errors)
-      // OR errors thrown from the .then block above (e.g. result.success is false).
-      console.error(`OCR script execution failed or script error: ${error.message}`);
-      // Re-throw to be handled by processEmailWithOCR or other callers.
-      // It's important that this function now consistently throws an error on failure.
-      throw error;
-    });
-}
-
 async function processEmailWithOCR(messageId) {
   try {
+    // Directly get email details without any OCR fallback.
     let emailDetails = await getEmailDetails(messageId);
-    if (!emailDetails) return null;
-    if (!emailDetails.body || emailDetails.body.length < 50) {
-      console.log(`Attempting OCR for ${messageId}...`);
-      const screenshot = await captureEmailWithPuppeteer(messageId);
-      if (screenshot) {
-        const imageBase64 = screenshot.toString('base64');
-        try {
-          const ocrResult = await runPythonOCR(imageBase64);
-          if (ocrResult.text) { // runPythonOCR would throw if ocrResult.success is false
-            emailDetails.body = ocrResult.text;
-            emailDetails.isOCRProcessed = true;
-            emailDetails.ocrWordCount = ocrResult.word_count || 0;
-          }
-        } catch (ocrError) {
-          console.error(`OCR step failed for ${messageId}: ${ocrError.message}`);
-        }
-      }
+    if (!emailDetails) {
+      console.log(`Failed to get email details for ${messageId}, no OCR fallback.`);
+      return null;
     }
+    // Add a log to indicate OCR is skipped.
+    console.log(`OCR process skipped for ${messageId}. Using fetched email content directly.`);
+    // Ensure properties that might have been set by OCR are initialized or absent.
+    emailDetails.isOCRProcessed = false; 
+    emailDetails.ocrWordCount = 0;
+
     return emailDetails;
   } catch (error) {
-    console.error(`Error in processEmailWithOCR for ${messageId}:`, error);
+    console.error(`Error in processEmailWithOCR (OCR removed) for ${messageId}:`, error);
     return null;
   }
 }
