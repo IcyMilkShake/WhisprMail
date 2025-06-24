@@ -88,6 +88,12 @@ const SCOPES = [
 ];
 
 let mainWindow;
+let originalConsoleLog;
+let originalConsoleWarn;
+let originalConsoleError;
+let originalConsoleInfo;
+let originalConsoleDebug;
+
 let gmail;
 let oAuth2Client;
 let currentCodeVerifier; // Added for PKCE
@@ -242,8 +248,53 @@ process.on('uncaughtException', (error) => {
   // Handle gracefully instead of crashing
 });
 
+// --- CONSOLE LOG OVERRIDE ---
+function overrideConsole() {
+  originalConsoleLog = console.log;
+  originalConsoleWarn = console.warn;
+  originalConsoleError = console.error;
+  originalConsoleInfo = console.info;
+  originalConsoleDebug = console.debug;
+
+  const sendToRenderer = (type, ...args) => {
+    if (mainWindow && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send('console-log-from-main', { type, messages: args });
+    }
+  };
+
+  console.log = (...args) => {
+    originalConsoleLog.apply(console, args);
+    sendToRenderer('log', ...args);
+  };
+  console.warn = (...args) => {
+    originalConsoleWarn.apply(console, args);
+    sendToRenderer('warn', ...args);
+  };
+  console.error = (...args) => {
+    originalConsoleError.apply(console, args);
+    sendToRenderer('error', ...args);
+  };
+  console.info = (...args) => {
+    originalConsoleInfo.apply(console, args);
+    sendToRenderer('info', ...args);
+  };
+  console.debug = (...args) => {
+    originalConsoleDebug.apply(console, args);
+    sendToRenderer('debug', ...args);
+  };
+}
+
+function restoreConsole() {
+  if (originalConsoleLog) console.log = originalConsoleLog;
+  if (originalConsoleWarn) console.warn = originalConsoleWarn;
+  if (originalConsoleError) console.error = originalConsoleError;
+  if (originalConsoleInfo) console.info = originalConsoleInfo;
+  if (originalConsoleDebug) console.debug = originalConsoleDebug;
+}
+
 // --- ELECTRON APP LIFECYCLE & MAIN WINDOW ---
 function createWindow() {
+  overrideConsole(); // Override console before window creation
   mainWindow = new BrowserWindow({
     width: 700,
     height: 500,
@@ -311,6 +362,7 @@ function createAndShowEmailWindow(messageId) { // Changed signature
 }
 
 app.on('window-all-closed', () => {
+  restoreConsole(); // Restore console when all windows are closed
   stopMonitoring();
   if (process.platform !== 'darwin') app.quit();
 });
