@@ -6,7 +6,8 @@ const validReceiveChannels = [
   'display-email-in-modal',
   'display-email-in-modal-error',
   'email-count-update',
-  'new-email' // Assuming this is used from main.js to renderer.js for new email notifications shown in-app
+  'new-email', // Assuming this is used from main.js to renderer.js for new email notifications shown in-app
+  'console-log-from-main' // Added for receiving main process logs
   // Add any other channels that main.js sends to renderer.js for the main window
 ];
 
@@ -97,6 +98,19 @@ contextBridge.exposeInMainWorld('gmail', {
 });
 
 console.log('[Preload] Gmail API exposed to renderer.');
+
+// Expose a specific listener for main process logs
+contextBridge.exposeInMainWorld('mainProcessLogs', {
+  onLog: (callback) => {
+    const listener = (event, logEntry) => callback(logEntry);
+    ipcRenderer.on('console-log-from-main', listener);
+    return () => {
+      ipcRenderer.removeListener('console-log-from-main', listener);
+    };
+  }
+});
+
+console.log('[Preload] mainProcessLogs API exposed to renderer.');
 
 // Define channels for electronAPI (for notification windows)
 const validNotificationInvokeChannels = [

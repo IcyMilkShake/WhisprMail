@@ -400,6 +400,34 @@ window.addEventListener('beforeunload', () => {
     cleanupEmailCountUpdate();
   }
   // If other .on listeners are added, their cleanup functions should be called here too.
+  if (typeof cleanupMainProcessLogs === 'function') {
+    cleanupMainProcessLogs();
+  }
+});
+
+// --- MAIN PROCESS LOG LISTENER ---
+const cleanupMainProcessLogs = window.mainProcessLogs.onLog((logEntry) => {
+  const { type, messages } = logEntry;
+  const prefix = `[MAIN]`;
+  switch (type) {
+    case 'log':
+      console.log(prefix, ...messages);
+      break;
+    case 'warn':
+      console.warn(prefix, ...messages);
+      break;
+    case 'error':
+      console.error(prefix, ...messages);
+      break;
+    case 'info':
+      console.info(prefix, ...messages);
+      break;
+    case 'debug':
+      console.debug(prefix, ...messages);
+      break;
+    default:
+      console.log(`[MAIN - unknown type: ${type}]`, ...messages);
+  }
 });
 
 // --- THEME APPLICATION LOGIC ---
