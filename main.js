@@ -2497,7 +2497,6 @@ ipcMain.handle('check-new-mail', async () => {
 ipcMain.handle('start-monitoring', async () => {
   if (!gmail) {
     try {
-      await initializeGmail();
     } catch (e) {
       console.error("Gmail init failed in start-monitoring:", e);
       // Ensure a string is returned in all error paths
