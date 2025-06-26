@@ -20,13 +20,13 @@
         "filter": ["**/*"]
       },
       {
-        "from": "summarizer.js",
-        "to": "summarizer.js",
+        "from": "summarizer.py",
+        "to": "summarizer.py",
         "filter": ["**/*"]
       },
       {
-        "from": "tone_analyzer.js",
-        "to": "tone_analyzer.js",
+        "from": "tone_analyzer.py",
+        "to": "tone_analyzer.py",
         "filter": ["**/*"]
       }
       ],
@@ -38,6 +38,15 @@
         "!get-pip.py",
         "!token.json"
       ],
+      "nsis": {
+        "oneClick": false,
+        "perMachine": false,
+        "allowToChangeInstallationDirectory": true,
+        "createDesktopShortcut": true,
+        "createStartMenuShortcut": true,
+        "shortcutName": "WhisprMail"
+      },
+
       "directories": {
         "output": "dist"
       },
