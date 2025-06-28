@@ -98,20 +98,10 @@ function updateUI() {
 
 function updateSettingsUI() {
   document.getElementById('summaryToggle').checked = settings.enableSummary;
-  document.getElementById('voiceToggle').checked = settings.enableVoiceReading;
   document.getElementById('urgencyToggle').checked = settings.showUrgency; // Add this line
   document.getElementById('readTimeToggle').checked = settings.enableReadTime; // <-- ADD THIS LINE
-  document.getElementById('summaryToggle').checked = settings.enableSummary;
-  document.getElementById('voiceToggle').checked = settings.enableVoiceReading;
-  document.getElementById('urgencyToggle').checked = settings.showUrgency;
-  document.getElementById('readTimeToggle').checked = settings.enableReadTime;
   document.getElementById('speakSenderNameToggle').checked = settings.speakSenderName; 
   document.getElementById('speakSubjectToggle').checked = settings.speakSubject;   
-
-  // Additionally, enable/disable sub-toggles based on voiceToggle state
-  const voiceToggleState = document.getElementById('voiceToggle').checked; 
-  document.getElementById('speakSenderNameToggle').disabled = !voiceToggleState;
-  document.getElementById('speakSubjectToggle').disabled = !voiceToggleState;
 
   updateActiveThemeButton(settings.appearanceTheme);
 }
@@ -145,14 +135,12 @@ async function loadSettings() {
 async function saveSettings() {
   try {
     const summaryToggle = document.getElementById('summaryToggle');
-    const voiceToggle = document.getElementById('voiceToggle');
     const urgencyToggle = document.getElementById('urgencyToggle'); // Add this
     const readTimeToggle = document.getElementById('readTimeToggle'); // <-- ADD THIS LINE
     const speakSenderNameToggle = document.getElementById('speakSenderNameToggle'); // <-- ADD THIS LINE
     const speakSubjectToggle = document.getElementById('speakSubjectToggle');     // <-- ADD THIS LINE
     
     settings.enableSummary = summaryToggle.checked;
-    settings.enableVoiceReading = voiceToggle.checked;
     settings.showUrgency = urgencyToggle.checked; // Add this
     settings.enableReadTime = readTimeToggle.checked; 
     settings.speakSenderName = speakSenderNameToggle.checked; 
