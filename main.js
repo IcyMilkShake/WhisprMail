@@ -166,11 +166,9 @@ const themePalettes = {
 // User settings
 let settings = {
   enableSummary: false,
-  enableVoiceReading: true,
   enableReadTime: true, 
   speakSenderName: true, // <-- ADD THIS LINE
   speakSubject: true,    // <-- ADD THIS LINE
-  // huggingfaceToken: process.env.HUGGINGFACE_TOKEN, // Removed from settings
   showUrgency: true,
   appearanceTheme: 'dark' // Added new theme setting
 };
@@ -2399,24 +2397,22 @@ async function checkForNewEmails() {
             const notificationData = { ...emailDetails, body: displayText, isSummary };
             createCustomNotification(notificationData);
 
-            if (settings.enableVoiceReading) {
-              let voiceMsgParts = [];
+            let voiceMsgParts = [];
 
-              if (settings.speakSenderName && notificationData.from) {
-                voiceMsgParts.push(`New message from ${notificationData.from}.`);
-              }
+            if (settings.speakSenderName && notificationData.from) {
+              voiceMsgParts.push(`New message from ${notificationData.from}.`);
+            }
 
-              if (settings.speakSubject && notificationData.subject) {
-                voiceMsgParts.push(`Subject: ${notificationData.subject}.`);
-              }
-              
-              if (voiceMsgParts.length > 0) {
-                const voiceMsg = voiceMsgParts.join(' ');
-                say.speak(voiceMsg);
-              } else {
-                // Fallback if everything is off but voice reading is enabled
-                say.speak("You have a new email.");
-              }
+            if (settings.speakSubject && notificationData.subject) {
+              voiceMsgParts.push(`Subject: ${notificationData.subject}.`);
+            }
+            
+            if (voiceMsgParts.length > 0) {
+              const voiceMsg = voiceMsgParts.join(' ');
+              say.speak(voiceMsg);
+            } else {
+              // Fallback if everything is off but voice reading is enabled
+              say.speak("You have a new email.");
             }
             if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.webContents.send('new-email', notificationData);
