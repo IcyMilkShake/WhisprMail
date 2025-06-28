@@ -20,7 +20,7 @@ const KEYTAR_SERVICE_NAME = 'WhisprMailGoogleOAuth';
 // as we're storing the token bundle for the primary user of the app for this service.
 const KEYTAR_ACCOUNT_NAME = 'userTokens';
 // Hugging Face token constants removed
-
+const isDev = true; // Change to false for production
 // --- Keytar Helper Functions ---
 /**
  * Saves the provided tokens (JSON stringified) to the system keychain using keytar.
@@ -80,7 +80,9 @@ const SETTINGS_PATH = path.join(app.getPath('userData'), 'app_settings.json');
 let notifiableAuthors = []; // To store email addresses
 
 // --- GLOBAL VARIABLES & CONSTANTS ---
-const PYTHON_EXECUTABLE_PATH = path.join(process.resourcesPath, 'python_executor', 'python.exe'); // Added from previous task
+const PYTHON_EXECUTABLE_PATH = isDev
+  ? path.join(__dirname, 'python_executor', 'python.exe')
+  : path.join(process.resourcesPath, 'python_executor', 'python.exe');
 const SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.modify',
@@ -176,7 +178,9 @@ let settings = {
 // --- PYTHON SCRIPT EXECUTION HELPER ---
 function executePythonScript(scriptName, scriptArgs = [], inputText = null, timeout = 100000) {
   return new Promise((resolve, reject) => {
-    const fullScriptPath = path.join(process.resourcesPath, scriptName);
+  const fullScriptPath = isDev
+    ? path.join(__dirname, scriptName)
+    : path.join(process.resourcesPath, scriptName);
 
     // --- Prepare environment for Python script ---
     const pythonEnv = { ...process.env }; // Clone current environment
