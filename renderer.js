@@ -339,15 +339,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       updateActiveThemeButton('midnight');
     });
   }
-
-  document.getElementById('voiceToggle').addEventListener('change', () => {
-    // Update the settings object directly for immediate reflection in updateSettingsUI
-    settings.enableVoiceReading = document.getElementById('voiceToggle').checked;
-    // Update UI (this will handle disabling/enabling sub-toggles)
-    updateSettingsUI();
-    // Trigger save for all settings
-    debouncedSave();
-  });
   
   // Keyboard shortcuts
   document.addEventListener('keydown', (e) => {

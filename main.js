@@ -20,7 +20,7 @@ const KEYTAR_SERVICE_NAME = 'WhisprMailGoogleOAuth';
 // as we're storing the token bundle for the primary user of the app for this service.
 const KEYTAR_ACCOUNT_NAME = 'userTokens';
 // Hugging Face token constants removed
-const isDev = true; // Change to false for production
+const isDev = false; // Change to false for production
 // --- Keytar Helper Functions ---
 /**
  * Saves the provided tokens (JSON stringified) to the system keychain using keytar.
@@ -627,7 +627,10 @@ async function initializeGmail() {
     console.log('Saving tokens from "tokens" event to keytar.');
     saveTokensWithKeytar(updatedTokens);
   });
-
+  // TEMPORARY: Delete tokens for development testing. REMOVE THIS FOR PRODUCTION.
+  console.warn('TEMPORARY DEVELOPMENT CODE: Deleting stored OAuth tokens.');
+  await deleteTokensFromKeytar(); 
+  // END TEMPORARY CODE
   let token = await getTokensFromKeytar();
 
   if (token && token.access_token) { // Ensure token object and access_token exist
