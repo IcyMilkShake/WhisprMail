@@ -110,11 +110,6 @@ let openEmailViewWindows = new Set();
 // This is a public identifier for the application, used by Google to identify this app.
 // For installed applications (like Electron apps) using PKCE, the client ID is not a secret.
 const GOOGLE_CLIENT_ID = '304008124129-6j79vk15selo581v1m870dnesma2vk9e.apps.googleusercontent.com';
-
-// GOOGLE_CLIENT_SECRET is no longer used in this file.
-// It will be used by the Vercel serverless function.
-
-// Theme Palettes (mirrored from renderer.js)
 const themePalettes = {
   dark: { // Current default theme - values from :root in index.html
     '--primary-bg': '#2C2F33',
