@@ -1,5 +1,6 @@
 ## ⚠️ Why This Project Is Postponed
 
+(￣^￣ )ゞ
 WhisprMail was built to revolutionize how you manage your Gmail inbox by combining powerful AI features with seamless email management. The app offers intelligent summarization, emotion detection to gauge urgency, and quick actions like starring or deleting emails as soon as they arrive.  
 
 However, because WhisprMail accesses **restricted Gmail API scopes** to read and modify user emails, Google requires the project to undergo a **Cloud Application Security Assessment (CASA)**. This is a thorough third-party security audit designed to protect user data and ensure compliance with strict privacy and security standards.  
