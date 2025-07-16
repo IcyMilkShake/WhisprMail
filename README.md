@@ -20,4 +20,6 @@ At the heart of WhisprMail is an intelligent AI system powered by Huggingface mo
 
 All of this is delivered within a **responsive, clean user interface** built with modern CSS, ensuring a smooth experience across devices and screen sizes.
 
-![AI Summarization and Emotion Detection Demo](https://youtu.be/FOsle62eTdo)
+🎥 **Watch the AI Summarization and Emotion Detection Demo:**  
+[https://youtu.be/FOsle62eTdo](https://youtu.be/FOsle62eTdo)
+
