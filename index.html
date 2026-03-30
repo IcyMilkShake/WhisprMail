@@ -1,733 +1,91 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <title>Gmail Checker</title>
   <style>
-    :root {
-      --primary-bg: #2C2F33;
-      --secondary-bg: #23272A;
-      --tertiary-bg: #36393F;
-      --main-text: #FFFFFF;
-      --secondary-text: #B9BBBE;
-      --accent-purple: #7289DA;
-      --lighter-purple: #8A9DF2;
-      --button-bg: #4F545C;
-      --button-hover-bg: #5D6269;
-      --success-color: #43B581;
-      --error-color: #F04747;
-      --warning-color: #FAA61A;
-      /* Add more if needed, e.g., border-color */
-      --border-color: #40444B; 
-    }
-
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
     body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background-color: var(--primary-bg);
-      color: var(--main-text);
-      min-height: 100vh;
+      font-family: Arial, sans-serif;
       padding: 20px;
-      overflow-x: hidden;
+      background-color: #f5f5f5;
     }
-
     .container {
-      max-width: 500px; /* Consider adjusting for wider screens if needed */
+      max-width: 500px;
       margin: 0 auto;
-      animation: fadeInUp 0.6s ease-out;
+      background: white;
+      padding: 30px;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
     }
-
-    /* General Panel Styling */
-    .glass-card, /* Existing main card */
-    .settings-panel,
-    #notifiableAuthorsCard, /* Used as a panel */
-    .status-display,
-    .email-count {
-      background-color: var(--secondary-bg);
-      border: 1px solid var(--border-color);
-      border-radius: 8px; /* Standardized border-radius */
-      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2); /* Darker shadow for depth */
-      padding: 20px; /* Standardized padding */
-      margin-bottom: 20px; /* Spacing between panels */
-      overflow: hidden; 
-      transition: all 0.3s ease;
-    }
-
-    .glass-card { /* Specific overrides if .glass-card is the main wrapper */
-        min-height: auto; /* Override previous min-height if it's too large */
-        padding: 0; /* Let inner sections handle padding */
-    }
-    
-    .glass-card:hover { /* Subtle hover effect for panels */
-      transform: translateY(-2px);
-      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
-    }
-
-    .header { /* Specific styling for the top header if it's inside a .glass-card */
+    h1 {
+      color: #333;
       text-align: center;
-      padding: 30px 20px; /* Adjusted padding */
-      background-color: var(--tertiary-bg); /* Slightly different background for header */
-      border-bottom: 1px solid var(--border-color);
-      position: relative;
+      margin-bottom: 30px;
     }
-
-    .header::before { /* Keep the accent line, or change colors */
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 4px;
-      background: linear-gradient(90deg, var(--accent-purple), var(--lighter-purple), var(--success-color));
-    }
-
-    h1, h2, h3, h4, h5, h6 {
-      color: var(--main-text); /* Default heading color */
-      margin-bottom: 0.5em; /* Consistent spacing */
-    }
-    h1 { font-size: 24px; color: var(--accent-purple); }
-    h2 { font-size: 20px; }
-    h3 { font-size: 18px; }
-
-    .subtitle {
-      color: var(--secondary-text);
-      font-size: 14px;
-      font-weight: 400;
-    }
-
-    .status-section { /* This wraps status-display and email-count */
-      padding: 20px; /* Padding for the section containing status elements */
-    }
-
-    .status-display { /* Added flex properties for centering */
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      text-align: center;
-    }
-    
-    /* Status Display already covered by .glass-card like styling */
-    .status-icon {
-      font-size: 40px; /* Slightly smaller */
-      margin-bottom: 10px;
-      display: block;
-      animation: pulse 2s infinite;
-      color: var(--main-text); /* Ensure icon color matches */
-    }
-
-    .status-text {
-      font-size: 18px;
-      font-weight: 600;
-      margin-bottom: 8px;
-      color: var(--main-text); /* Default status text */
-    }
-
-    .status-subtext {
-      font-size: 14px;
-      color: var(--secondary-text);
-    }
-
-    .monitoring .status-text {
-      color: var(--success-color);
-    }
-    .monitoring .status-icon {
-      color: var(--success-color);
-    }
-
-    .stopped .status-text {
-      color: var(--error-color);
-    }
-    .stopped .status-icon {
-      color: var(--error-color);
-    }
-    
-    /* Email Count already covered by .glass-card like styling */
-    .email-count {
-        text-align: center;
-    }
-    .email-count::before { /* Shimmer effect, adjust colors if needed */
-      background: linear-gradient(45deg, transparent, rgba(255,255,255,0.05), transparent);
-      animation: shimmer 3s infinite;
-    }
-
-    .count-number {
-      font-size: 28px;
-      font-weight: 700;
-      margin-bottom: 4px;
-      color: var(--main-text);
-    }
-
-    .count-label {
-      font-size: 14px;
-      color: var(--secondary-text);
-    }
-
-    .controls { /* Panel for control buttons */
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-      margin-bottom: 20px; /* Consistent spacing */
-      padding: 20px;
-      background-color: var(--secondary-bg);
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
-    }
-
-    button, .control-btn { /* General button styling */
-      background-color: var(--button-bg);
-      color: var(--main-text);
-      border: 1px solid var(--border-color);
+    button {
+      background: #4285f4;
+      color: white;
+      border: none;
+      padding: 12px 24px;
       border-radius: 5px;
-      padding: 10px 15px;
-      font-size: 14px;
-      font-weight: 600;
       cursor: pointer;
-      transition: background-color 0.2s ease, transform 0.1s ease;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      font-size: 16px;
+      margin: 5px;
     }
-
-    button:hover, .control-btn:hover {
-      background-color: var(--button-hover-bg);
-      transform: translateY(-1px); /* Subtle lift */
+    button:hover {
+      background: #3367d6;
     }
-
-    .control-btn:active {
-      transform: translateY(0);
-    }
-
-    .control-btn:disabled {
-      opacity: 0.5;
+    button:disabled {
+      background: #ccc;
       cursor: not-allowed;
-      transform: none;
-      background-color: var(--tertiary-bg); /* Different disabled bg */
     }
-
-    /* Specific Button Styles */
-    .btn-start { /* Primary action button when stopped */
-      background-color: var(--accent-purple);
-    }
-    .btn-start:hover {
-      background-color: var(--lighter-purple);
-    }
-    /* .btn-start when monitoring could be var(--success-color) if desired */
-    
-    .btn-stop { /* Destructive-like action */
-      background-color: var(--error-color);
-    }
-    .btn-stop:hover {
-      background-color: #d33636; /* Darken error color */
-    }
-
-    .btn-check, .btn-view-all { /* Neutral/utility buttons */
-      grid-column: 1 / -1; /* Span full width */
-      background-color: var(--tertiary-bg);
-    }
-    .btn-check:hover, .btn-view-all:hover {
-      background-color: var(--button-bg); /* Use standard button hover */
-    }
-
-    .theme-button-group {
-      display: flex;
-      gap: 10px; /* Space between buttons */
-      margin-top: 10px; /* Space above the button group */
-      margin-bottom: 15px; /* Space below the button group */
-      padding: 10px; /* Padding around the group */
-      background-color: var(--tertiary-bg); /* Background for the group itself */
-      border-radius: 6px; /* Rounded corners for the group */
-      border: 1px solid var(--border-color);
-    }
-
-    .theme-btn {
-      flex-grow: 1; /* Make buttons share space equally */
-      background-color: var(--button-bg);
-      color: var(--main-text);
-      border: 1px solid var(--border-color);
-      border-radius: 5px;
-      padding: 8px 12px; /* Slightly adjusted padding */
-      font-size: 13px; /* Slightly smaller font */
-      font-weight: 500;
-      cursor: pointer;
-      transition: background-color 0.2s ease, transform 0.1s ease, border-color 0.2s ease;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px; /* Space between icon and text */
+    .status {
       text-align: center;
+      margin: 20px 0;
+      padding: 15px;
+      border-radius: 5px;
+      font-weight: bold;
     }
-
-    .theme-btn:hover {
-      background-color: var(--button-hover-bg);
-      transform: translateY(-1px);
-      border-color: var(--lighter-purple); /* Highlight border on hover */
+    .monitoring {
+      background: #e8f5e8;
+      color: #2e7d2e;
+      border: 1px solid #2e7d2e;
     }
-
-    .theme-btn.active {
-      background-color: var(--accent-purple);
-      color: var(--main-text); /* Ensure text is readable */
-      border-color: var(--lighter-purple); /* Stronger border for active state */
-      box-shadow: 0 0 8px var(--accent-purple); /* Add a glow effect */
-      transform: translateY(-1px); /* Keep it slightly elevated */
+    .stopped {
+      background: #ffe8e8;
+      color: #d63031;
+      border: 1px solid #d63031;
     }
-
-    .theme-btn:disabled { /* If we ever need to disable them */
-      opacity: 0.5;
-      cursor: not-allowed;
-      background-color: var(--tertiary-bg);
-      transform: none;
-    }
-
-    /* Ensure icons within buttons are vertically aligned if needed */
-    .theme-btn span { 
-      display: inline-flex;
-      align-items: center;
-    }
-    
-    /* Settings Panel already covered by .glass-card like styling */
-    .settings-title {
+    .email-count {
       font-size: 18px;
-      font-weight: 700;
-      color: var(--main-text);
-      margin-bottom: 15px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      border-bottom: 1px solid var(--border-color);
-      padding-bottom: 10px;
-    }
-
-    .setting-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 12px 0; /* Adjusted padding */
-      border-bottom: 1px solid var(--border-color);
-    }
-
-    .setting-item:last-child {
-      border-bottom: none;
-    }
-
-    .setting-info {
-      flex: 1;
-    }
-
-    .setting-label {
-      font-weight: 600;
-      color: var(--main-text);
-      margin-bottom: 4px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .setting-description {
-      font-size: 12px;
-      color: var(--secondary-text);
-    }
-
-    /* Modern Toggle Switch - Dark Theme */
-    .toggle {
-      position: relative;
-      display: inline-block;
-      width: 50px; /* Slightly smaller */
-      height: 26px;
-    }
-
-    .toggle input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-    }
-
-    .slider {
-      position: absolute;
-      cursor: pointer;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background-color: var(--tertiary-bg); /* Darker background for off state */
-      transition: 0.3s;
-      border-radius: 26px;
-      border: 1px solid var(--border-color);
-    }
-
-    .slider:before {
-      position: absolute;
-      content: "";
-      height: 20px; /* Smaller knob */
-      width: 20px;
-      left: 2px;
-      bottom: 2px;
-      background-color: var(--secondary-text); /* Knob color */
-      transition: 0.3s;
-      border-radius: 50%;
-    }
-
-    input:checked + .slider {
-      background-color: var(--accent-purple); /* Accent color for on state */
-      border-color: var(--accent-purple);
-    }
-    input:checked + .slider:before {
-      transform: translateX(24px); /* Adjust knob travel */
-      background-color: var(--main-text); /* Knob color when on */
-    }
-
-    /* Input fields */
-    input[type="email"], input[type="text"] { /* Assuming generic text inputs too */
-      background-color: var(--primary-bg);
-      color: var(--main-text);
-      border: 1px solid var(--border-color);
-      border-radius: 5px;
-      padding: 10px; /* Increased padding */
-      font-size: 14px;
-      width: 100%; /* Make them take available width */
-    }
-    input[type="email"]:focus, input[type="text"]:focus {
-      border-color: var(--accent-purple);
-      outline: none; /* Remove default outline */
-      box-shadow: 0 0 5px var(--accent-purple_alpha); /* Optional: add a glow, define --accent-purple_alpha */
-    }
-
-    /* Notifiable Authors List */
-    #notifiableAuthorsCard .header { /* Specific header for this card */
-        background-color: var(--tertiary-bg); /* Match other panel headers */
-    }
-    .authors-section { /* Inner content padding */
-        padding: 20px;
-    }
-    #notifiableAuthorEmailInput { /* Already styled by general input styles */
-        margin-bottom: 10px; /* Add some space below input */
-    }
-    #addNotifiableAuthorBtn { /* Style as a primary action button */
-        background-color: var(--accent-purple);
-        width: auto; /* Don't force full width if not needed */
-        padding: 10px 15px;
-    }
-    #addNotifiableAuthorBtn:hover {
-        background-color: var(--lighter-purple);
-    }
-    .notifiable-authors-list-container h3 {
-        color: var(--main-text);
-        border-bottom: 1px solid var(--border-color);
-        padding-bottom: 8px;
-        margin-bottom: 12px;
-    }
-    #notifiableAuthorsList li {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 10px 5px;
-        border-bottom: 1px solid var(--border-color);
-        font-size: 14px;
-        color: var(--secondary-text);
-    }
-    #notifiableAuthorsList li:last-child {
-        border-bottom: none;
-    }
-    #notifiableAuthorsList .author-email {
-        color: var(--main-text);
-    }
-    #notifiableAuthorsList .remove-author-btn {
-        background-color: var(--error-color);
-        color: var(--main-text);
-        padding: 6px 10px; /* Adjusted padding */
-        font-size: 12px;
-    }
-    #notifiableAuthorsList .remove-author-btn:hover {
-        background-color: #d33636; /* Darken error color */
-    }
-    #noNotifiableAuthorsMsg {
-        color: var(--secondary-text);
-        font-style: italic;
-        margin-top: 10px;
-        text-align: center;
-    }
-    
-    /* Links */
-    a {
-      color: var(--accent-purple);
-      text-decoration: none;
-    }
-    a:hover {
-      color: var(--lighter-purple);
-      text-decoration: underline;
-    }
-
-    /* Email Preview Modal */
-    #emailPreviewModal { /* Backdrop */
-      background-color: rgba(0, 0, 0, 0.7); /* Darker backdrop */
-    }
-    /* The modal content div itself (child of #emailPreviewModal) */
-    #emailPreviewModal > div { 
-      background-color: var(--secondary-bg);
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-      color: var(--main-text); /* Ensure text inside modal is visible */
-    }
-    #emailPreviewTitle {
-      color: var(--main-text);
-    }
-    #closeEmailPreviewModal {
-      color: var(--secondary-text);
-      font-size: 24px; /* Ensure it's large enough */
-      transition: color 0.2s ease;
-    }
-    #closeEmailPreviewModal:hover {
-      color: var(--main-text);
-    }
-    #emailPreviewFrame {
-      border: 1px solid var(--border-color);
-      border-radius: 5px; /* Consistent border radius */
-    }
-
-    /* Scrollbars */
-    ::-webkit-scrollbar {
-      width: 10px; /* Slightly wider */
-      height: 10px;
-    }
-    ::-webkit-scrollbar-track {
-      background: var(--primary-bg);
-      border-radius: 5px;
-    }
-    ::-webkit-scrollbar-thumb {
-      background: var(--button-bg);
-      border-radius: 5px;
-      border: 2px solid var(--primary-bg); /* Creates a nice padding effect */
-    }
-    ::-webkit-scrollbar-thumb:hover {
-      background: var(--button-hover-bg);
-    }
-
-    /* Animations */
-    @keyframes fadeInUp {
-      from {
-        opacity: 0;
-        transform: translateY(30px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    @keyframes pulse {
-      0%, 100% {
-        transform: scale(1);
-      }
-      50% {
-        transform: scale(1.05);
-      }
-    }
-
-    @keyframes shimmer {
-      0% {
-        transform: translateX(-100%) translateY(-100%) rotate(45deg);
-      }
-      100% {
-        transform: translateX(100%) translateY(100%) rotate(45deg);
-      }
-    }
-
-    .loading {
-      opacity: 0.6;
-      pointer-events: none;
-    }
-
-    .success-flash {
-      animation: successFlash 0.6s ease-out;
-    }
-
-    @keyframes successFlash {
-      0% { background: rgba(16, 185, 129, 0.2); }
-      100% { background: transparent; }
-    }
-
-    /* Responsive */
-    #emailPreviewModal > div {
-        background-color: #ffffff !important; /* Ensure modal content area is white */
-    }
-
-    @media (max-width: 600px) {
-      .container {
-        margin: 0;
-        padding: 0 10px;
-      }
-      
-      .glass-card {
-        border-radius: 16px;
-      }
-      
-      .controls {
-        grid-template-columns: 1fr;
-      }
-      
-      .btn-check {
-        grid-column: 1;
-      }
+      text-align: center;
+      margin: 15px 0;
+      color: #333;
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="glass-card">
-      <div class="header">
-        <h1>📧 Gmail Monitor Pro</h1>
-        <div class="subtitle">Real-time email notifications with AI</div>
-      </div>
-      
-      <div class="status-section">
-        <div class="status-display" id="statusDisplay">
-          <span class="status-icon" id="statusIcon">🔄</span>
-          <div class="status-text" id="statusText">Initializing...</div>
-          <div class="status-subtext" id="statusSubtext">Setting up email monitoring</div>
-        </div>
-        
-        <div class="email-count" id="emailCount">
-          <div class="count-number" id="countNumber">--</div>
-          <div class="count-label">Unread Emails</div>
-        </div>
-        
-        <div class="controls">
-          <button class="control-btn btn-start" onclick="startMonitoring()" id="startBtn">
-            <span>▶️</span> Start
-          </button>
-          <button class="control-btn btn-stop" onclick="stopMonitoring()" id="stopBtn">
-            <span>⏸️</span> Stop
-          </button>
-          <button class="control-btn btn-check" onclick="checkEmail()" id="checkBtn">
-            <span>📬</span> Check Now
-          </button>
-        </div>
-        
-        <div class="settings-panel">
-          <div class="settings-title">
-            <span>⚙️</span> Settings
-          </div>
-          
-          <div class="setting-item">
-            <div class="setting-info">
-              <div class="setting-label">
-                <span>🤖</span> AI Summary
-              </div>
-              <div class="setting-description">Summarize long emails using AI (Adds ~2-5s per email)</div>
-            </div>
-            <label class="toggle">
-              <input type="checkbox" id="summaryToggle">
-              <span class="slider"></span>
-            </label>
-          </div>
-
-          <!-- New Toggle for Speaking Sender Name -->
-          <div class="setting-item">
-            <div class="setting-info">
-              <div class="setting-label">
-                <span>🗣️</span> Speak Sender Name
-              </div>
-              <div class="setting-description">Announce the sender's name.</div>
-            </div>
-            <label class="toggle">
-              <input type="checkbox" id="speakSenderNameToggle" checked>
-              <span class="slider"></span>
-            </label>
-          </div>
-
-          <!-- New Toggle for Speaking Subject -->
-          <div class="setting-item">
-            <div class="setting-info">
-              <div class="setting-label">
-                <span>📖</span> Speak Subject
-              </div>
-              <div class="setting-description">Announce the email subject.</div>
-            </div>
-            <label class="toggle">
-              <input type="checkbox" id="speakSubjectToggle" checked>
-              <span class="slider"></span>
-            </label>
-          </div>
-
-          <div class="setting-item">
-            <div class="setting-info">
-              <div class="setting-label">
-                <span>⚠️</span> Show Urgency
-              </div>
-              <div class="setting-description">Display urgency level on notifications (Adds ~2-5s per email)</div>
-            </div>
-            <label class="toggle">
-              <input type="checkbox" id="urgencyToggle" checked>
-              <span class="slider"></span>
-            </label>
-          </div>
-          
-          <div class="setting-item">
-            <div class="setting-info">
-              <div class="setting-label">
-                <span>⏱️</span> Show Read Time 
-              </div>
-              <div class="setting-description">Display estimated read time on notifications (Adds ~2-5s per email)</div>
-            </div>
-            <label class="toggle">
-              <input type="checkbox" id="readTimeToggle" checked>
-              <span class="slider"></span>
-            </label>
-          </div>
-
-        </div>
-
-        <!-- Sub-heading for Appearance -->
-        <div style="padding: 10px 0 5px 0; color: var(--main-text); font-size: 16px; font-weight: bold; border-bottom: 1px solid var(--border-color); margin-bottom: 5px;">
-          Appearance:
-        </div>
-
-        <div class="theme-button-group" style="margin-top: 10px; margin-bottom: 10px;"> <!-- Added margin-bottom for spacing -->
-          <button id="btnThemeDark" class="theme-btn"><span>🌙</span> Dark</button>
-          <button id="btnThemeLight" class="theme-btn"><span>☀️</span> Light</button>
-          <button id="btnThemeMidnight" class="theme-btn"><span>🌃</span> Midnight</button>
-        </div>
-      </div>
-
-      <!-- Add this new card after the existing settings card -->
-      <div class="glass-card" id="notifiableAuthorsCard" style="margin-top: 20px;">
-        <div class="header">
-          <h2 style="color: white; font-size: 20px; font-weight: 600; margin-bottom: 5px; text-shadow: 0 1px 3px rgba(0,0,0,0.2);">📬 Notifiable Authors</h2>
-          <div class="subtitle" style="font-size: 13px;">Manage email addresses for custom notifications</div>
-        </div>
-        <div class="authors-section" style="padding: 24px;">
-          <div class="add-author-form" style="margin-bottom: 20px; display: flex; gap: 10px; align-items: center;">
-            <input type="email" id="notifiableAuthorEmailInput" placeholder="Enter author's email" style="flex-grow: 1; padding: 12px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px;">
-            <button id="addNotifiableAuthorBtn" class="control-btn" style="background: linear-gradient(135deg, #10b981, #059669); color: white; padding: 12px 18px; font-size: 14px; white-space: nowrap;">
-              <span>➕</span> Add Author
-            </button>
-          </div>
-          <div class="notifiable-authors-list-container">
-            <h3 style="font-size: 17px; font-weight: 600; margin-bottom: 12px; color: #333; border-bottom: 1px solid #eee; padding-bottom: 8px;">Current Notification List:</h3>
-            <ul id="notifiableAuthorsList" style="list-style: none; padding: 0; max-height: 200px; overflow-y: auto;">
-              <!-- Author items will be dynamically added here by renderer.js -->
-              <!-- Example structure for renderer.js:
-              <li style="display: flex; justify-content: space-between; align-items: center; padding: 10px 5px; border-bottom: 1px solid #f0f0f0; font-size: 14px; color: #444;">
-                <span class="author-email">author@example.com</span>
-                <button class="remove-author-btn" data-email="author@example.com" style="background: linear-gradient(135deg, #ef4444, #dc2626); color: white; border: none; border-radius: 6px; padding: 6px 12px; font-size: 12px; cursor: pointer; transition: background-color 0.2s ease;">
-                  <span>🗑️</span> Remove
-                </button>
-              </li>
-              -->
-            </ul>
-            <p id="noNotifiableAuthorsMsg" style="color: #555; font-style: italic; margin-top: 10px; text-align: center; display: none;">No authors added yet. Accepting all email's</p>
-          </div>
-        </div>
-      </div>
+    <h1>📧 Gmail Monitor</h1>
+    
+    <div class="email-count" id="emailCount">
+      Unread emails: --
+    </div>
+    
+    <div class="status" id="status">
+      🔄 Monitoring automatically started...
+    </div>
+    
+    <div style="text-align: center;">
+      <button onclick="checkEmail()">Manual Check</button>
+      <button onclick="startMonitoring()" id="startBtn">Start Monitoring</button>
+      <button onclick="stopMonitoring()" id="stopBtn">Stop Monitoring</button>
+    </div>
+    
+    <div style="margin-top: 20px; font-size: 12px; color: #666; text-align: center;">
+      Check the console for real-time email notifications!
     </div>
   </div>
 
   <script src="renderer.js"></script>
-
 </body>
 </html>
